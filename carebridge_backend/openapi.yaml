@@ -1,0 +1,271 @@
+openapi: 3.0.3
+info:
+  title: CareBridge Healthcare Companion REST API
+  description: REST API specification for CareBridge caregiver application integrating with Hospital Management Systems (HMS).
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Spring Boot Development Server
+
+paths:
+  /auth/send-otp:
+    post:
+      summary: Send Firebase Phone OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  example: "+919876543210"
+      responses:
+        '200':
+          description: OTP sent successfully
+
+  /auth/verify-otp:
+    post:
+      summary: Verify OTP and Register Caregiver with Admission ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  example: "+919876543210"
+                otpCode:
+                  type: string
+                  example: "784291"
+                admissionId:
+                  type: string
+                  example: "HMS-2026-8842"
+      responses:
+        '200':
+          description: Caregiver authenticated & JWT token issued
+
+  /patients/{admissionId}:
+    get:
+      summary: Get Patient Demographics & Admission Overview
+      parameters:
+        - name: admissionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Patient details retrieved
+
+  /treatments:
+    get:
+      summary: Get Chronological Treatment Updates
+      parameters:
+        - name: admissionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of treatment updates and doctor notes
+
+  /reports:
+    get:
+      summary: Get Lab & Diagnostic Reports
+      parameters:
+        - name: admissionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of lab reports
+
+  /prescriptions:
+    get:
+      summary: Get Active & Past Medication Prescriptions
+      parameters:
+        - name: admissionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of prescriptions
+
+  /billing/summary:
+    get:
+      summary: Get Hospital Bill Summary & Itemized Charges
+      parameters:
+        - name: admissionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bill details retrieved
+
+  /billing/pay:
+    post:
+      summary: Execute Demo Payment (UPI / Card / NetBanking)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                billId:
+                  type: integer
+                  example: 1
+                paymentMethod:
+                  type: string
+                  example: "UPI"
+                amount:
+                  type: number
+                  example: 14500.00
+      responses:
+        '200':
+          description: Payment successful & digital receipt generated
+
+  /insurance/status:
+    get:
+      summary: Get Insurance Claim Lifecycle Status
+      parameters:
+        - name: admissionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Claim status timeline retrieved
+
+  /family:
+    get:
+      summary: List Authorized Family Members
+      responses:
+        '200':
+          description: List of family members
+    post:
+      summary: Invite Family Member (Primary Caregiver Only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                  example: "David Vance"
+                phoneNumber:
+                  type: string
+                  example: "+919812376543"
+                relation:
+                  type: string
+                  example: "Son"
+      responses:
+        '200':
+          description: Invitation sent
+
+  /notifications:
+    get:
+      summary: Get Real-Time Notification Feed
+      responses:
+        '200':
+          description: Notifications feed retrieved
+
+  /admissions/{admissionId}/observations:
+    parameters:
+      - name: admissionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: X-Caregiver-Mobile
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: X-Staff-Request
+        in: header
+        required: false
+        schema:
+          type: string
+    get:
+      summary: List observations for one admission
+      responses:
+        '200':
+          description: Observations ordered newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Observation'
+        '403':
+          description: Caregiver is not authorized for the admission
+        '404':
+          description: Admission not found
+    post:
+      summary: Create an observation for an active admission (staff only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Observation'
+      responses:
+        '200':
+          description: Observation saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '400':
+          description: Malformed or invalid request
+        '403':
+          description: Staff authentication is required
+        '404':
+          description: Admission not found
+        '409':
+          description: Admission is discharged or IDs do not match
+
+components:
+  schemas:
+    Observation:
+      type: object
+      required:
+        - patientId
+        - admissionId
+        - doctorName
+        - department
+        - note
+        - vitals
+        - createdAt
+      properties:
+        patientId:
+          type: string
+        admissionId:
+          type: string
+        doctorName:
+          type: string
+        department:
+          type: string
+        note:
+          type: string
+        vitals:
+          type: string
+        createdAt:
+          type: string
+          format: date-time

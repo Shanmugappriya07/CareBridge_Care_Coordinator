@@ -1,0 +1,50 @@
+# Node.js dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# Build/output
+dist/
+build/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+# Java / Maven
+target/
+**/target/
+
+# Node
+node_modules/
+
+# Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+
+# Flutter generated/local files
+.metadata
+**/.metadata
+
+# Firebase duplicate/local config
+google-services (2).json
+
+# Project ZIP archives
+*.zip
+# Local logs / temporary files
+startup-error.txt
+# IDE files
+*.iml
+.idea/

@@ -1,0 +1,53 @@
+name: carebridge_app
+description: "CareBridge - Caregiver-Centric Healthcare Companion Mobile Application"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.4.9
+  google_fonts: ^6.1.0
+  intl: ^0.19.0
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.6
+  firebase_core: ^4.14.0
+  firebase_auth: ^6.6.1
+  cloud_firestore: ^6.9.0
+  pdf: ^3.11.1
+  path_provider: ^2.1.4
+  open_filex: ^4.5.1
+  file_picker: ^8.1.2
+  flutter_native_splash: ^2.4.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/carebridge_logo.png
+    - assets/carebridge_splash.png
+
+flutter_native_splash:
+  color: "#98D5CD"
+  image: assets/carebridge_splash.png
+
+  android_12:
+    color: "#98D5CD"
+    image: assets/carebridge_splash.png
+    icon_background_color: "#98D5CD"
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/carebridge_logo.png"
+  adaptive_icon_background: "#98D5CD"
+  adaptive_icon_foreground: "assets/carebridge_logo.png"

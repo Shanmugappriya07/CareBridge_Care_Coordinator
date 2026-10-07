@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hospital Management System (HMS) — Staff Portal</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="auth.js"></script>
+  <script>
+    // Fast redirect guard: bounce to the login page immediately if there's
+    // no valid staff session, before the protected portal content renders.
+    if (!hmsIsLoggedIn()) {
+      window.location.href = 'login.html';
+    }
+  </script>
+</head>
+
+<body>
+
+  <!-- HMS Header Navbar -->
+  <header class="hms-navbar">
+    <div class="hms-brand">
+      <div class="hms-logo-icon"><i class="fa-solid fa-hospital-user"></i></div>
+      <div>
+        <div class="hms-title">HMS Portal</div>
+        <div class="hms-subtitle">Hospital Staff Administration Portal</div>
+      </div>
+    </div>
+
+    <div class="staff-user-badge" id="staffUserBadge">
+      <i class="fa-solid fa-user-doctor" style="color: var(--cyan-light);" id="staffUserIcon"></i>
+      <span>Logged in:</span>
+      <button class="btn btn-outline"
+        style="padding: 4px 10px; font-size: 11px; margin-left: 8px; color: white; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.1);"
+        onclick="openStaffLoginModal()">
+        <i class="fa-solid fa-arrows-rotate"></i> Switch Staff Account
+      </button>
+      <!-- <span class="badge badge-success" style="margin-left: 8px;">Database Connected</span> -->
+    </div>
+  </header>
+
+  <!-- Department Navigation Tabs -->
+  <nav class="dept-nav">
+    <div class="dept-tab active" id="tab-nav-reception" onclick="switchDept('reception')">
+      <i class="fa-solid fa-id-card"></i> 1. Reception & Admissions <span id="tab-lock-reception"></span>
+    </div>
+    <div class="dept-tab" id="tab-nav-nurse" onclick="switchDept('nurse')">
+      <i class="fa-solid fa-user-nurse"></i> 2. Duty Nurse & Scheduling Doctor Visits <span id="tab-lock-nurse"></span>
+    </div>
+    <div class="dept-tab" id="tab-nav-doctor" onclick="switchDept('doctor')">
+      <i class="fa-solid fa-stethoscope"></i> 3. Doctor Ward Rounds <span id="tab-lock-doctor"></span>
+    </div>
+    <div class="dept-tab" id="tab-nav-laboratory" onclick="switchDept('laboratory')">
+      <i class="fa-solid fa-flask-vial"></i> 4. Laboratory & Diagnostics <span id="tab-lock-laboratory"></span>
+    </div>
+    <div class="dept-tab" id="tab-nav-pharmacy" onclick="switchDept('pharmacy')">
+      <i class="fa-solid fa-pills"></i> 5. Pharmacy Dispensing <span id="tab-lock-pharmacy"></span>
+    </div>
+    <div class="dept-tab" id="tab-nav-billing" onclick="switchDept('billing')">
+      <i class="fa-solid fa-file-invoice-dollar"></i> 6. Billing & Insurance Desk <span id="tab-lock-billing"></span>
+    </div>
+    <!-- <div class="dept-tab" id="tab-nav-inspector" onclick="switchDept('inspector')">
+      <i class="fa-solid fa-database"></i> 7. Live Database Inspector <span id="tab-lock-inspector"></span>
+    </div> -->
+  </nav>
+
+  <!-- Main Department Views Container -->
+  <main class="hms-container">
+
+    <div id="dept-portal-content-view" style="display: block;">
+
+      <!-- DEPARTMENT 1: RECEPTION & PATIENT REGISTRATION -->
+      <section id="dept-reception" class="dept-view active">
+        <div class="grid-2col">
+
+          <!-- Form: Admit New Patient & Bind Caregiver -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-user-plus" style="color: var(--cyan-primary);"></i>
+                Patient Admission & Caregiver Linkage</span>
+              <!-- <span class="badge badge-info">Step 1 of Hospital Onboarding</span> -->
+            </div>
+
+            <form id="admitPatientForm" novalidate onsubmit="event.preventDefault(); handleAdmitPatient();">
+              <div class="form-group">
+                <label class="form-label" for="admPatientMode">Patient Registration Type</label>
+                <select id="admPatientMode" class="form-control" onchange="handlePatientModeChange()">
+                  <option value="new" selected>New Patient Registration</option>
+                  <option value="existing">Existing Patient (Readmission)</option>
+                </select>
+                <div id="admPatientModeHelp" style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">New
+                  patient registration automatically assigns a structured Patient ID and Admission ID.</div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="admPatientName">Patient Full Name</label>
+                  <input type="text" id="admPatientName" class="form-control" required
+                    placeholder="Enter patient full name">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="admDob">Date of Birth (DOB) <span style="font-size: 11px; font-weight: normal; color: var(--text-secondary);">(Max 150 yrs to today)</span></label>
+                  <input type="date" id="admDob" name="admDob" class="form-control" required onchange="handleDobChange()" oninput="handleDobChange()">
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                    Calculated Age: <strong id="admCalculatedAge" style="color: var(--cyan-primary);">-</strong>
+                    <input type="hidden" id="admPatientAge">
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="admPatientGender">Gender</label>
+                  <select id="admPatientGender" class="form-control" required>
+                    <option value="" disabled selected>Select Gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Transgender">Transgender</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Blood Group</label>
+                  <select id="admPatientBloodGroup" class="form-control" required>
+                    <option value="" disabled selected>Select Blood Group</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="Unknown">Unknown</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Patient Mobile Number</label>
+                  <div style="display: flex; gap: 6px;">
+                    <span class="form-control"
+                      style="width: 68px; flex-shrink: 0; background: var(--surface-variant); font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 10px;">+91</span>
+                    <input type="text" id="admPatientPhone" class="form-control" maxlength="10" required
+                      placeholder="10-digit number" oninput="formatPhoneNumberInput(this)">
+                  </div>
+                </div>
+                <div id="admPatientIdGroup" class="form-group" style="display: none;">
+                  <label class="form-label">Existing Patient ID</label>
+                  <input type="text" id="admPatientId" class="form-control" onchange="loadExistingPatient()"
+                    placeholder="e.g. 26PAT0001" style="background: var(--surface-variant); font-weight: 700;">
+                  <div id="admPatientLookupStatus" aria-live="polite"
+                    style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;"></div>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="admDepartment">Admitting Department</label>
+                  <select id="admDepartment" class="form-control" required onchange="handleAdmitDeptChange()">
+                    <option value="" disabled selected>Select Department</option>
+                    <option value="Cardiology">Cardiology (CAR)</option>
+                    <option value="Pulmonology">Pulmonology (PUL)</option>
+                    <option value="Internal Medicine">Internal Medicine (MED)</option>
+                    <option value="Emergency Care">Emergency Care (EMG)</option>
+                    <option value="Paediatrics">Paediatrics (PED)</option>
+                    <option value="Maternity">Maternity (MAT)</option>
+                    <option value="Critical Care / ICU">Critical Care / ICU (ICU)</option>
+                    <option value="General Medicine">General Medicine (GEN)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="admType">Admission Type</label>
+                  <select id="admType" class="form-control" required>
+                    <option value="" disabled selected>Select Admission Type</option>
+                    <option value="Emergency">Emergency</option>
+                    <option value="Planned">Planned</option>
+                    <option value="Referral">Referral</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="admReason">Reason for Admission</label>
+                  <input type="text" id="admReason" class="form-control"
+                    placeholder="Primary complaint / reason for admission" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="admDateTimeDisplay">Admission Date &amp; Time (Read-Only)</label>
+                  <input type="text" id="admDateTimeDisplay" class="form-control" readonly
+                    style="background: var(--surface-variant); cursor: not-allowed; font-weight: 600;"
+                    placeholder="Auto-filled with current date & time">
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Assigned Ward & Room</label>
+                  <select id="admRoom" class="form-control" required>
+                    <option value="" disabled selected>Select Ward & Room</option>
+                    <option value="ICU Room 101">ICU Room 101</option>
+                    <option value="ICU Room 102">ICU Room 102</option>
+                    <option value="ICU Room 201">ICU Room 201</option>
+                    <option value="ICU Room 304">ICU Room 304</option>
+                    <option value="General Ward A - Bed 1">General Ward A - Bed 1</option>
+                    <option value="General Ward A - Bed 2">General Ward A - Bed 2</option>
+                    <option value="General Ward A - Bed 3">General Ward A - Bed 3</option>
+                    <option value="General Ward B - Bed 1">General Ward B - Bed 1</option>
+                    <option value="General Ward B - Bed 2">General Ward B - Bed 2</option>
+                    <option value="General Ward B - Bed 3">General Ward B - Bed 3</option>
+                    <option value="Private Room 501">Private Room 501</option>
+                    <option value="Private Room 502">Private Room 502</option>
+                    <option value="Private Room 503">Private Room 503</option>
+                    <option value="Semi-Private Room 401">Semi-Private Room 401</option>
+                    <option value="Semi-Private Room 402">Semi-Private Room 402</option>
+                    <option value="Paediatric Ward - Bed 1">Paediatric Ward - Bed 1</option>
+                    <option value="Paediatric Ward - Bed 2">Paediatric Ward - Bed 2</option>
+                    <option value="Maternity Ward - Room 1">Maternity Ward - Room 1</option>
+                    <option value="Maternity Ward - Room 2">Maternity Ward - Room 2</option>
+                    <option value="Emergency Bay 1">Emergency Bay 1</option>
+                    <option value="Emergency Bay 2">Emergency Bay 2</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Attending Doctor</label>
+                  <select id="admDoctor" class="form-control" required onchange="handleAdmitDoctorChange()">
+                    <option value="" disabled selected>Select Attending Doctor</option>
+                    <option value="Dr. Aris Thorne (Cardiology)">Dr. Aris Thorne (Cardiology)</option>
+                    <option value="Dr. Elena Rostova (Pulmonology)">Dr. Elena Rostova (Pulmonology)</option>
+                    <option value="Dr. Marcus Vance (Internal Med)">Dr. Marcus Vance (Internal Med)</option>
+                  </select>
+                </div>
+              </div>
+
+              <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border);">
+
+              <div class="form-label"
+                style="font-size: 14px; font-weight: 700; color: var(--navy-dark); margin-bottom: 10px;">
+                <i class="fa-solid fa-user-nurse" style="color: var(--cyan-primary);"></i> Primary Caregiver Identity
+                Binding
+              </div>
+
+              <div id="previousCaregiverPanel" class="form-group"
+                style="display: none; padding: 12px; background: var(--surface-variant); border: 1px solid var(--border); border-radius: var(--radius-md);">
+                <div id="previousCaregiverStatus" aria-live="polite" style="font-size: 13px;"></div>
+                <div id="previousCaregiverChoice" style="display: none; margin-top: 8px;">
+                  <div style="font-size: 13px; margin-bottom: 8px;">
+                    <strong>Previous caregiver:</strong> <span id="previousCaregiverDetails"></span>
+                  </div>
+                  <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">Is this caregiver still
+                    accompanying the patient?</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <button type="button" class="btn btn-outline" onclick="usePreviousCaregiver()">Yes, use existing
+                      caregiver</button>
+                    <button type="button" class="btn btn-outline" onclick="changeAdmissionCaregiver()">No, change
+                      caregiver</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Caregiver Full Name</label>
+                  <input type="text" id="admCaregiverName" class="form-control" required placeholder="Caregiver name">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Caregiver Mobile Number (OTP Auth)</label>
+                  <div style="display: flex; gap: 6px;">
+                    <span class="form-control"
+                      style="width: 68px; flex-shrink: 0; background: var(--surface-variant); font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 10px;">+91</span>
+                    <input type="text" id="admCaregiverPhone" class="form-control" maxlength="10" required
+                      placeholder="10-digit number" oninput="formatPhoneNumberInput(this)">
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Relationship to Patient</label>
+                <select id="admCaregiverRelation" class="form-control" required>
+                  <option value="" disabled selected>Select Relationship</option>
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Son">Son</option>
+                  <option value="Daughter">Daughter</option>
+                  <option value="Spouse">Spouse</option>
+                  <option value="Sibling">Sibling</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <button type="submit" class="btn btn-primary"
+                style="width: 100%; justify-content: center; margin-top: 8px;">
+                <i class="fa-solid fa-check-circle"></i> Commit Patient Admission & Generate System Identifiers
+              </button>
+
+            </form>
+
+            <!-- Generated System Identifiers Confirmation Panel (Req 1, 2, 4) -->
+            <div id="admConfirmationPanel"
+              style="display: none; margin-top: 16px; background: rgba(2, 132, 199, 0.08); border: 2px solid var(--cyan-primary); border-radius: var(--radius-md); padding: 16px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <span style="font-weight: 800; font-size: 15px; color: var(--navy-dark);"><i
+                    class="fa-solid fa-circle-check" style="color: var(--emerald-success);"></i> System Identifiers
+                  Generated</span>
+                <span class="badge badge-success">Admission Confirmed</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div
+                  style="background: var(--surface); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                  <div
+                    style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">
+                    Structured Patient ID</div>
+                  <div id="confPatientId"
+                    style="font-size: 20px; font-weight: 800; color: var(--navy-dark); font-family: monospace; margin-top: 4px;">
+                    -</div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Unique Patient Identifier</div>
+                </div>
+                <div
+                  style="background: var(--surface); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                  <div
+                    style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">
+                    Structured Admission ID</div>
+                  <div id="confAdmissionId"
+                    style="font-size: 20px; font-weight: 800; color: var(--cyan-primary); font-family: monospace; margin-top: 4px;">
+                    -</div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Year + Dept Code + Sequence</div>
+                </div>
+              </div>
+              <div id="confDetailsText"
+                style="margin-top: 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5;"></div>
+            </div>
+          </div>
+
+          <!-- Directory of Admitted Patients -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-hospital-user" style="color: var(--cyan-primary);"></i>
+                Active Admitted Patients</span>
+              <span class="badge badge-success">Live HMS Census</span>
+            </div>
+
+            <table class="hms-table">
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Patient ID</th>
+                  <th>Admission ID</th>
+                  <th>Caregiver</th>
+                  <th>Ward / Room</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="activePatientsTbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 2: DUTY NURSE & VISIT SCHEDULING (Req 5) -->
+      <section id="dept-nurse" class="dept-view">
+        <div class="grid-2col">
+
+          <!-- Duty Nurse Schedule Form -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-calendar-check" style="color: var(--cyan-primary);"></i>
+                Duty Nurse: Schedule Doctor Visits </span>
+              <span class="badge badge-info">Operational Staff Scheduling</span>
+            </div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+              Duty nurses assign patients and admissions to available doctors. The scheduled visits appear
+              directly in the doctor's consultation console.
+            </div>
+
+            <form id="hmsScheduleForm" onsubmit="event.preventDefault(); handleSaveSchedule();">
+              <input type="hidden" id="scheduleRecordId">
+              <div class="form-group">
+                <label class="form-label" for="scheduleAdmissionSelect">Active Patient / Admission</label>
+                <select id="scheduleAdmissionSelect" class="form-control" onchange="updateScheduleDoctorDisplay()"
+                  required>
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                </select>
+              </div>
+
+              <!-- Patient Info Preview (Auto-populated from Active Admission) -->
+              <div
+                style="background: var(--surface-variant); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div>Patient: <strong id="schedulePatientDisplay">-</strong></div>
+                <div>Patient ID: <strong id="schedulePatientIdDisplay" style="font-family: monospace;">-</strong></div>
+                <div>Admission ID: <strong id="scheduleAdmissionIdDisplay"
+                    style="font-family: monospace; color: var(--cyan-primary);">-</strong></div>
+                <div>Current Department: <strong id="scheduleDeptDisplay">-</strong></div>
+                <div style="grid-column: span 2;">Current Location: <strong id="scheduleRoomDisplay">-</strong></div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="scheduleDoctorSelect">Assign Doctor (Read-Only)</label>
+                  <select id="scheduleDoctorSelect" class="form-control" required disabled
+                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                    onchange="handleScheduleDoctorChange()">
+                    <option value="" disabled selected>Select Doctor</option>
+                  </select>
+                </div>
+                <div class="form-group" id="scheduleStatusGroup">
+                  <label class="form-label" for="scheduleStatus">Status</label>
+                  <!-- Read-only status for new appointment creation -->
+                  <input type="text" id="scheduleStatusDisplay" class="form-control" readonly value="Scheduled"
+                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;" placeholder="Scheduled">
+                  <!-- Editable status dropdown visible exclusively in Edit mode -->
+                  <select id="scheduleStatus" class="form-control" style="display: none;">
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="scheduleEventDate">Visit Date (Read-Only)</label>
+                  <input id="scheduleEventDate" class="form-control" type="date" required readonly
+                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;">
+                  <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Auto-filled from patient context.</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="scheduleAppointmentTime">Visit Time</label>
+                  <input id="scheduleAppointmentTime" class="form-control" type="time" required>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="scheduleAppointmentType">Visit Type / Reason (Read-Only)</label>
+                  <input id="scheduleAppointmentType" class="form-control" maxlength="160" readonly
+                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                    placeholder="Auto-populated from admission reason" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="scheduleRoom">Room / Location</label>
+                  <input type="text" id="scheduleRoom" class="form-control" readonly
+                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                    placeholder="Auto-populated from Active Admission" required>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 10px;">
+                <button id="scheduleSubmitButton" type="submit" class="btn btn-primary"><i
+                    class="fa-solid fa-calendar-plus"></i> Schedule Visit</button>
+                <button id="scheduleClearButton" type="button" class="btn btn-outline"
+                  onclick="resetScheduleForm()">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Scheduled Appointments Queue -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-list-check" style="color: var(--cyan-primary);"></i>
+                Scheduled Doctor Visits</span>
+              <span class="badge badge-info">Duty Nurse Ledger</span>
+            </div>
+
+            <div style="overflow-x: auto;">
+              <table class="hms-table">
+                <thead>
+                  <tr>
+                    <th>Patient &amp; IDs</th>
+                    <th>Doctor &amp; Dept</th>
+                    <th>Date &amp; Time</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="scheduleTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 2: DOCTOR WARD ROUNDS & PRESCRIPTIONS -->
+      <section id="dept-doctor" class="dept-view">
+        <!-- Doctor Assigned Appointments Queue (Req 5: Doctor only sees assigned appointments) -->
+        <div class="card-panel" style="margin-bottom: 20px;">
+          <div class="panel-header">
+            <span class="panel-title"><i class="fa-solid fa-calendar-check" style="color: var(--cyan-primary);"></i>
+              Assigned Consultations &amp; Visits</span>
+            <span class="badge badge-info">Duty Nurse Assigned • Read-Only Scheduling</span>
+          </div>
+          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+            Operational staff (Duty Nurse) manages visit scheduling. The visits assigned to you appear
+            below.
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="hms-table">
+              <thead>
+                <tr>
+                  <th>Patient &amp; IDs</th>
+                  <th>Assigned Doctor</th>
+                  <th>Date &amp; Time</th>
+                  <th>Type / Reason</th>
+                  <th>Room</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="doctorAssignedAppointmentsTbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2col">
+
+          <!-- Post Ward Round Update -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-notes-medical" style="color: var(--cyan-primary);"></i>
+                Log Ward Round Instruction & Vitals</span>
+              <span class="badge badge-info">Physician Entry</span>
+            </div>
+
+            <form id="addTreatmentForm" onsubmit="event.preventDefault(); handleAddTreatment();">
+              <div class="form-group">
+                <label class="form-label" for="trtPatientSelect">Select Patient</label>
+                <select id="trtPatientSelect" class="form-control" required>
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                  <!-- Dynamically populated from Active Admitted Patients by refreshPatientSelectors() -->
+                </select>
+              </div>
+
+              <!-- Doctor info auto-filled from session — read-only display -->
+              <div
+                style="background: var(--surface-variant); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 13px; display: flex; gap: 24px;">
+                <div><span style="color: var(--text-secondary);">Doctor:</span> <strong id="trtDoctorDisplay">Dr. Aris
+                    Thorne</strong></div>
+                <div><span style="color: var(--text-secondary);">Department:</span> <strong
+                    id="trtDeptDisplay">Cardiology Dept</strong></div>
+              </div>
+              <!-- Hidden fields carry the values for JS logic -->
+              <input type="hidden" id="trtDoctorName">
+              <input type="hidden" id="trtDept">
+
+              <div class="form-group">
+                <label class="form-label">Doctor Clinical Instructions & Observations</label>
+                <textarea id="trtNote" class="form-control"
+                  placeholder="Enter clinical notes, diet orders, and nursing instructions..."
+                  required>Patient responding exceptionally well to IV Ceftriaxone. SpO2 stable at 98%. Maintain light liquid diet and monitor blood pressure every 4 hours.</textarea>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Blood Pressure <span
+                      style="color: var(--text-secondary); font-weight: 400;">(Systolic / Diastolic)</span></label>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="number" id="trtBpSys" class="form-control" value="120" min="40" max="300" step="0.1"
+                      placeholder="Systolic" required style="width: 80px;">
+                    <span style="color: var(--text-secondary); font-weight: 700;">/</span>
+                    <input type="number" id="trtBpDia" class="form-control" value="80" min="20" max="200" step="0.1"
+                      placeholder="Diastolic" required style="width: 80px;">
+                    <span class="form-control"
+                      style="flex-shrink: 0; background: var(--surface-variant); font-weight: 700; width: 60px; display: flex; align-items: center; justify-content: center; padding: 0 8px;">mmHg</span>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">SpO2 Oxygen Saturation <span
+                      style="color: var(--text-secondary); font-weight: 400;">(%)</span></label>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="number" id="trtSpo2" class="form-control" value="98" min="0" max="100" step="0.1"
+                      required>
+                    <span class="form-control"
+                      style="flex-shrink: 0; background: var(--surface-variant); font-weight: 700; width: 44px; display: flex; align-items: center; justify-content: center; padding: 0 8px;">%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Heart Rate <span
+                      style="color: var(--text-secondary); font-weight: 400;">(bpm)</span></label>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="number" id="trtHr" class="form-control" value="74" min="0" max="300" step="0.1"
+                      required>
+                    <span class="form-control"
+                      style="flex-shrink: 0; background: var(--surface-variant); font-weight: 700; width: 52px; display: flex; align-items: center; justify-content: center; padding: 0 8px;">bpm</span>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Temperature <span
+                      style="color: var(--text-secondary); font-weight: 400;">(°F)</span></label>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="number" id="trtTemp" class="form-control" value="98.6" min="86" max="115" step="0.1"
+                      required>
+                    <span class="form-control"
+                      style="flex-shrink: 0; background: var(--surface-variant); font-weight: 700; width: 40px; display: flex; align-items: center; justify-content: center; padding: 0 8px;">°F</span>
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                <i class="fa-solid fa-paper-plane"></i> Publish Treatment Update to Caregiver App
+              </button>
+            </form>
+
+            <div style="font-size: 14px; font-weight: 700; margin-top: 20px; margin-bottom: 8px;">
+              <i class="fa-solid fa-heart-pulse" style="color: var(--rose-danger);"></i> Vitals &amp; Ward Round History
+            </div>
+            <div style="overflow-x: auto; max-height: 250px; overflow-y: auto;">
+              <table class="hms-table" style="font-size: 12px;">
+                <thead>
+                  <tr>
+                    <th>Date &amp; Time</th>
+                    <th>Doctor</th>
+                    <th>BP</th>
+                    <th>Pulse</th>
+                    <th>SpO2</th>
+                    <th>Temp</th>
+                    <th>Clinical Note</th>
+                  </tr>
+                </thead>
+                <tbody id="vitalsHistoryTbody">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 12px;">Select a patient to view vitals history.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Issue Prescription Form -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-prescription" style="color: var(--cyan-primary);"></i>
+                Issue New Drug Prescription</span>
+              <span class="badge badge-warning">Pharmacy Queue Trigger</span>
+            </div>
+
+            <form id="addPrescriptionForm" onsubmit="event.preventDefault(); handleAddMedicineToStaging();">
+              <input type="hidden" id="rxRecordId">
+              <div class="form-group">
+                <label class="form-label" for="rxAdmissionSelect">Active Admission</label>
+                <select id="rxAdmissionSelect" class="form-control" onchange="updatePrescriptionDoctorDisplay()"
+                  required>
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                </select>
+              </div>
+              <div
+                style="background: var(--surface-variant); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 13px;">
+                Doctor: <strong id="rxDoctorDisplay">-</strong>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="rxMedName">Medicine / Drug Name & Strength</label>
+                <select id="rxMedName" class="form-control" onchange="handleRxMedNameChange()">
+                  <option value="" disabled selected>Select Medicine / Drug Name</option>
+                  <option value="Ceftriaxone 1g Injection (IV)">Ceftriaxone 1g Injection (IV)</option>
+                  <option value="Atorvastatin 20mg Tablet">Atorvastatin 20mg Tablet</option>
+                  <option value="Metformin 500mg Tablet">Metformin 500mg Tablet</option>
+                  <option value="Amlodipine 5mg Tablet">Amlodipine 5mg Tablet</option>
+                  <option value="Pantoprazole 40mg Tablet">Pantoprazole 40mg Tablet</option>
+                  <option value="Amoxicillin 500mg Capsule">Amoxicillin 500mg Capsule</option>
+                  <option value="Paracetamol 500mg Tablet">Paracetamol 500mg Tablet</option>
+                  <option value="Azithromycin 250mg Tablet">Azithromycin 250mg Tablet</option>
+                  <option value="Ondansetron 4mg Injection (IV)">Ondansetron 4mg Injection (IV)</option>
+                  <option value="Heparin 5000 IU Injection (SC)">Heparin 5000 IU Injection (SC)</option>
+                  <option value="Insulin Glargine 10 Units (SC)">Insulin Glargine 10 Units (SC)</option>
+                  <option value="Furosemide 40mg Tablet">Furosemide 40mg Tablet</option>
+                  <option value="Metoprolol 25mg Tablet">Metoprolol 25mg Tablet</option>
+                  <option value="Salbutamol 2.5mg Nebulisation">Salbutamol 2.5mg Nebulisation</option>
+                  <option value="Dexamethasone 4mg Injection (IV)">Dexamethasone 4mg Injection (IV)</option>
+                </select>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="rxDosageAmount">Dosage</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="number" id="rxDosageAmount" class="form-control" style="flex: 1;" min="0.1" step="any"
+                      placeholder="e.g. 1">
+                    <select id="rxDosageUnit" class="form-control" style="flex: 1; background: #f1f5f9; cursor: not-allowed; font-weight: 600;" disabled>
+                      <option value="" disabled selected>Unit</option>
+                      <option value="Tablet">Tablet</option>
+                      <option value="Capsule">Capsule</option>
+                      <option value="mg">mg</option>
+                      <option value="g">g</option>
+                      <option value="ml">ml</option>
+                      <option value="Drops">Drops</option>
+                      <option value="Puffs">Puffs</option>
+                      <option value="IU">IU</option>
+                      <option value="Sachet">Sachet</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="rxFrequency">Frequency</label>
+                  <select id="rxFrequency" class="form-control">
+                    <option value="" disabled selected>Select Frequency</option>
+                    <option value="Once daily">Once daily</option>
+                    <option value="Twice daily">Twice daily</option>
+                    <option value="Three times daily">Three times daily</option>
+                    <option value="Four times daily">Four times daily</option>
+                    <option value="Every 4 hours">Every 4 hours</option>
+                    <option value="Every 6 hours">Every 6 hours</option>
+                    <option value="Every 8 hours">Every 8 hours</option>
+                    <option value="Every 12 hours">Every 12 hours</option>
+                    <option value="As required / PRN">As required / PRN</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="rxDurationCount">Duration</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="number" id="rxDurationCount" class="form-control" style="flex: 1;" min="1" step="1"
+                      placeholder="e.g. 5">
+                    <select id="rxDurationUnit" class="form-control" style="flex: 1;">
+                      <option value="" disabled selected>Unit</option>
+                      <option value="Days" selected>Days</option>
+                      <option value="Weeks">Weeks</option>
+                      <option value="Months">Months</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="rxPrescriptionDate">Prescription Date</label>
+                  <input type="date" id="rxPrescriptionDate" class="form-control" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="rxRoute">Route of Administration</label>
+                <select id="rxRoute" class="form-control">
+                  <option value="" disabled selected>Select Route</option>
+                  <option value="Oral" selected>Oral</option>
+                  <option value="IV">IV</option>
+                  <option value="IM">IM</option>
+                  <option value="Subcutaneous">Subcutaneous</option>
+                  <option value="Topical">Topical</option>
+                  <option value="Inhalation">Inhalation</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="rxInstructions">Additional Instructions (Optional)</label>
+                <textarea id="rxInstructions" class="form-control" rows="2"
+                  placeholder="e.g. Take after food, do not take with milk..."></textarea>
+              </div>
+
+              <div style="display: flex; gap: 10px; margin-top: 14px;">
+                <button type="button" class="btn btn-outline" style="flex: 1; justify-content: center;"
+                  onclick="resetPrescriptionItemInputs()">
+                  <i class="fa-solid fa-rotate-left"></i> Clear Fields
+                </button>
+                <button type="button" id="addMedicineBtn" class="btn btn-primary" style="flex: 2; justify-content: center;"
+                  onclick="handleAddMedicineToStaging()">
+                  <i class="fa-solid fa-plus"></i> Add Medicine
+                </button>
+              </div>
+
+              <!-- Running Multi-Medicine List Review Table -->
+              <div style="margin-top: 18px;">
+                <div style="font-size: 13px; font-weight: 700; color: var(--navy-dark); margin-bottom: 6px;">
+                  Medicines to be Prescribed:
+                </div>
+                <div style="overflow-x: auto;">
+                  <table class="hms-table" style="font-size: 12px; margin-bottom: 12px;">
+                    <thead>
+                      <tr>
+                        <th>Drug Name</th>
+                        <th>Dosage</th>
+                        <th>Frequency</th>
+                        <th>Duration</th>
+                        <th>Instructions</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="pendingMedicinesTbody">
+                      <tr>
+                        <td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 12px;">
+                          No medicines added yet. Select a medicine and click "Add Medicine".
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <button type="button" id="confirmPrescriptionBatchBtn" class="btn btn-success" style="width: 100%; justify-content: center; font-size: 14px; padding: 10px;" onclick="handleConfirmPrescriptionBatch()">
+                  <i class="fa-solid fa-file-circle-check"></i> Confirm Prescription
+                </button>
+              </div>
+            </form>
+
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
+
+            <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px;">
+              <i class="fa-solid fa-clock-rotate-left" style="color: var(--cyan-primary);"></i> Most Recent Prescription
+            </div>
+            <div id="mostRecentPrescriptionCard">
+              <div style="padding: 16px; background: var(--surface-variant); border-radius: var(--radius-md); text-align: center; color: var(--text-secondary); font-size: 13px;">
+                Select a patient to view their most recent prescription.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 3: LABORATORY & DIAGNOSTICS -->
+      <!-- DEPARTMENT 3: LABORATORY & DIAGNOSTICS -->
+      <section id="dept-laboratory" class="dept-view">
+        <div style="max-width: 920px; margin: 0 auto;">
+
+          <!-- Upload Diagnostic Report Form -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-file-waveform" style="color: var(--cyan-primary);"></i>
+                Upload Diagnostic Lab Test Report</span>
+              <span class="badge badge-info">Pathology & Diagnostics</span>
+            </div>
+
+            <form id="addLabReportForm" onsubmit="event.preventDefault(); handleAddLabReport();">
+              <div class="form-group" style="position: relative;">
+                <label class="form-label" for="labPatientSearchInput">Select Patient <span style="font-weight: 400; color: var(--text-secondary);">(Search by ID or Name)</span></label>
+                <div style="position: relative;">
+                  <input type="text" id="labPatientSearchInput" class="form-control" placeholder="Type Patient ID or Name to filter..." autocomplete="off" oninput="handleLabPatientSearch(this.value)" onfocus="handleLabPatientSearch(this.value)">
+                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none;"></i>
+                </div>
+                <select id="labPatientSelect" class="form-control" style="display: none;" required>
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                  <!-- Dynamically populated from Active Admitted Patients -->
+                </select>
+                <div id="labPatientSearchResults" class="combobox-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 1050; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 6px 16px rgba(0,0,0,0.12); max-height: 220px; overflow-y: auto; margin-top: 4px;">
+                </div>
+                <div id="labSelectedPatientCard" style="display: none; margin-top: 8px; padding: 8px 12px; background: var(--surface-variant); border-radius: var(--radius-sm); font-size: 13px;">
+                  <span style="color: var(--text-secondary);">Selected Patient:</span> <strong id="labSelectedPatientText"></strong>
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="labName">Test / Report Name</label>
+                  <select id="labName" class="form-control" required>
+                    <option value="" disabled selected>Select Test / Report Name</option>
+                    <option value="Complete Blood Count (CBC)">Complete Blood Count (CBC)</option>
+                    <option value="Comprehensive Metabolic Panel (CMP)">Comprehensive Metabolic Panel (CMP)</option>
+                    <option value="Liver Function Test (LFT)">Liver Function Test (LFT)</option>
+                    <option value="Kidney Function Test (KFT)">Kidney Function Test (KFT)</option>
+                    <option value="Lipid Profile">Lipid Profile</option>
+                    <option value="Cardiac Enzymes (Troponin T)">Cardiac Enzymes (Troponin T)</option>
+                    <option value="Blood Glucose Fasting (FBS)">Blood Glucose Fasting (FBS)</option>
+                    <option value="HbA1c (Glycated Haemoglobin)">HbA1c (Glycated Haemoglobin)</option>
+                    <option value="Thyroid Function Test (TFT)">Thyroid Function Test (TFT)</option>
+                    <option value="Urine Routine & Microscopy">Urine Routine & Microscopy</option>
+                    <option value="Blood Culture & Sensitivity">Blood Culture & Sensitivity</option>
+                    <option value="Coagulation Profile (PT/INR)">Coagulation Profile (PT/INR)</option>
+                    <option value="Sputum AFB Smear">Sputum AFB Smear</option>
+                    <option value="COVID-19 RT-PCR">COVID-19 RT-PCR</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="labCategory">Category</label>
+                  <select id="labCategory" class="form-control" required>
+                    <option value="" disabled selected>Select Category</option>
+                    <option value="Pathology" selected>Pathology</option>
+                    <option value="Biochemistry">Biochemistry</option>
+                    <option value="Microbiology">Microbiology</option>
+                    <option value="Hematology">Hematology</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Upload Lab Test Report Attachment Control (Req 4.4) -->
+              <div class="form-group">
+                <label class="form-label">Upload Lab Test Report <span style="font-weight: 400; color: var(--text-secondary);">(PDF preferred, Max 15MB)</span></label>
+                <input type="file" id="labReportFileInput" accept=".pdf,application/pdf,.doc,.docx,image/*" style="display: none;" onchange="handleLabReportFileSelect(event)">
+                <div id="labReportUploadArea" style="border: 2px dashed var(--cyan-primary); border-radius: var(--radius-md); padding: 22px; text-align: center; background: var(--surface-variant); cursor: pointer; transition: background 0.2s;" onclick="document.getElementById('labReportFileInput').click()">
+                  <i class="fa-solid fa-cloud-arrow-up" style="font-size: 32px; color: var(--cyan-primary); margin-bottom: 8px;"></i>
+                  <div style="font-size: 14px; font-weight: 700; color: var(--navy-dark);">Click to select and upload report file</div>
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">PDF, DOC, DOCX, or Image (Max 15MB)</div>
+                </div>
+
+                <div id="labReportFileCard" style="display: none; margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: #f8fafc; align-items: center; justify-content: space-between;">
+                  <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+                    <i class="fa-solid fa-file-pdf" style="font-size: 26px; color: var(--rose-danger); flex-shrink: 0;"></i>
+                    <div style="overflow: hidden;">
+                      <div id="labReportFileNameDisplay" style="font-weight: 600; font-size: 13px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">report.pdf</div>
+                      <div id="labReportFileSizeDisplay" style="font-size: 11px; color: var(--text-secondary);">0 KB</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                    <button type="button" id="labReportPreviewBtn" class="btn btn-outline" style="padding: 4px 10px; font-size: 12px;" onclick="previewLabReportFile()">
+                      <i class="fa-solid fa-eye"></i> Preview / Download
+                    </button>
+                    <button type="button" class="btn btn-outline" style="padding: 4px 10px; font-size: 12px;" onclick="document.getElementById('labReportFileInput').click()">
+                      <i class="fa-solid fa-arrows-rotate"></i> Replace
+                    </button>
+                    <button type="button" class="btn btn-outline" style="padding: 4px 10px; font-size: 12px; color: var(--rose-danger); border-color: var(--rose-danger);" onclick="removeLabReportFile()">
+                      <i class="fa-solid fa-trash"></i> Remove
+                    </button>
+                  </div>
+                </div>
+                <input type="hidden" id="labReportFileUrl">
+                <input type="hidden" id="labReportFileName">
+              </div>
+
+              <!-- Hidden fallbacks for removed UI fields (Req 4.3: Test Status tag, Diagnostic Result, and Pathologist's Note removed from UI) -->
+              <input type="hidden" id="labStatus" value="Completed">
+              <input type="hidden" id="labResult" value="Attached PDF Lab Report">
+              <input type="hidden" id="labNotes" value="Official diagnostic laboratory report uploaded.">
+
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 14px; padding: 12px;">
+                <i class="fa-solid fa-cloud-arrow-up"></i> Publish Lab Report to Caregiver App
+              </button>
+            </form>
+          </div>
+
+          <!-- Hidden laboratory results tbody container for JS compatibility -->
+          <div style="display: none;">
+            <table><tbody id="labReportsTbody"></tbody></table>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 4: PHARMACY DISPENSING & WORKFLOW (Req 8 & 9) -->
+      <section id="dept-pharmacy" class="dept-view">
+        <div class="grid-2col">
+
+          <!-- Patient Selection & Prescription Dispense Form -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-prescription-bottle-medical"
+                  style="color: var(--cyan-primary);"></i> Pharmacy Dispensing Desk</span>
+              <span class="badge badge-warning">Dispensing Workflow</span>
+            </div>
+
+            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+              Select an admitted patient to view prescribed medications, verify readiness, and dispense with immediate
+              payment or Emergency (Pay Later).
+            </div>
+
+            <form id="pharmacyDispenseForm" onsubmit="event.preventDefault(); handlePharmacyDispense();">
+              <div class="form-group">
+                <label class="form-label" for="phmPatientSelect">Select Patient &amp; Admission</label>
+                <select id="phmPatientSelect" class="form-control" onchange="handlePhmPatientChange(true)" required>
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                </select>
+              </div>
+
+              <!-- Patient Quick Info Card -->
+              <div id="phmPatientInfoCard"
+                style="display: none; background: var(--surface-variant); border-radius: var(--radius-md); padding: 12px; margin-bottom: 14px; font-size: 13px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <div>Patient: <strong id="phmPatientNameDisplay">-</strong></div>
+                  <div>Patient ID: <strong id="phmPatientIdDisplay" style="font-family: monospace;">-</strong></div>
+                  <div>Admission ID: <strong id="phmAdmissionIdDisplay"
+                      style="color: var(--cyan-primary); font-family: monospace;">-</strong></div>
+                  <div>Ward / Room: <strong id="phmRoomDisplay">-</strong></div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="phmPrescriptionSelect">Linked Doctor Prescription</label>
+                <select id="phmPrescriptionSelect" class="form-control" onchange="handlePhmPrescriptionChange()"
+                  required>
+                  <option value="" disabled selected>Select Linked Prescription</option>
+                </select>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="phmMedicineName">Medicine Name &amp; Strength</label>
+                  <input id="phmMedicineName" class="form-control"
+                    placeholder="Automatically populated from prescription" readonly required
+                    style="background: var(--surface-variant); font-weight: 600;">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="phmQuantity">Dispense Quantity</label>
+                  <input id="phmQuantity" class="form-control" type="number" min="1" step="1" placeholder="Quantity"
+                    readonly style="background: var(--surface-variant); font-weight: 600;" required
+                    oninput="calculatePhmTotal()">
+                </div>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="phmUnitPrice">Unit Price (₹)</label>
+                  <input id="phmUnitPrice" class="form-control" type="number" min="0" step="0.01" placeholder="0.00"
+                    readonly style="background: var(--surface-variant); font-weight: 600;" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="phmTotalPrice">Total Billable Amount (₹)</label>
+                  <input id="phmTotalPrice" class="form-control" type="number" min="0" step="0.01" value="0.00" readonly
+                    style="font-weight: 700; color: var(--navy-dark); background: var(--surface-variant);">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="phmPaymentType">Payment / Dispensing Mode</label>
+                <select id="phmPaymentType" class="form-control" required onchange="handlePhmPaymentTypeChange()">
+                  <option value="" disabled selected>Select Payment Option</option>
+                  <option value="IMMEDIATE">Immediate Counter Payment (Caregiver pays now - Status: PAID)</option>
+                  <option value="EMERGENCY_PAY_LATER">Emergency Dispense / Pay Later (Dispense now - Status: PENDING,
+                    auto-billed to ledger)</option>
+                </select>
+                <div id="phmEmergencyHelp"
+                  style="display: none; margin-top: 6px; font-size: 12px; color: var(--amber-warning); font-weight: 600;">
+                  <i class="fa-solid fa-triangle-exclamation"></i> Emergency Mode: Medication will be dispensed
+                  immediately. Charge of <span id="phmEmergencyAmountText">₹0.00</span> will be added to the patient's
+                  outstanding hospital balance.
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="phmCounter">Pickup Counter / Location</label>
+                <select id="phmCounter" class="form-control" required>
+                  <option value="" disabled selected>Select Pickup Counter / Location</option>
+                  <option value="Ground Floor Counter 1">Ground Floor Counter 1</option>
+                  <option value="Ground Floor Counter 2">Ground Floor Counter 2</option>
+                  <option value="Ground Floor Counter 3">Ground Floor Counter 3</option>
+                  <option value="Emergency Pharmacy Counter">Emergency Pharmacy Counter</option>
+                </select>
+              </div>
+
+              <button type="submit" id="phmDispenseBtn" class="btn btn-primary"
+                style="width: 100%; justify-content: center; margin-top: 8px;">
+                <i class="fa-solid fa-hand-holding-medical"></i> Dispense Medication &amp; Update Record
+              </button>
+            </form>
+          </div>
+
+          <!-- Prescriptions for Selected Admission -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-file-prescription"
+                  style="color: var(--cyan-primary);"></i> Prescriptions for Selected Patient</span>
+              <span class="badge badge-info">Pipeline: PRESCRIBED &rarr; READY &rarr; DISPENSED</span>
+            </div>
+
+            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+              Doctor-issued prescription reference list. Click a card to select for dispensing.
+            </div>
+
+            <div id="phmAdmissionPrescriptionsContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; padding-right: 4px;">
+              <div style="text-align: center; color: var(--text-secondary); padding: 24px 16px; background: #ffffff; border: 1px dashed var(--border); border-radius: var(--radius-md); font-size: 13px;">
+                Select a patient to view prescriptions.
+              </div>
+            </div>
+            <!-- Hidden backward-compatibility tbody -->
+            <table style="display: none;"><tbody id="phmAdmissionPrescriptionsTbody"></tbody></table>
+          </div>
+
+        </div>
+
+        <!-- Pharmacy Dispensing & Payment Ledger -->
+        <div class="card-panel" style="margin-top: 20px;">
+          <div class="panel-header">
+            <span class="panel-title"><i class="fa-solid fa-receipt" style="color: var(--cyan-primary);"></i> Central
+              Pharmacy Transactions &amp; Dispensing Ledger</span>
+            <span class="badge badge-success">Live Dispensing Log</span>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table class="hms-table">
+              <thead>
+                <tr>
+                  <th>Txn ID</th>
+                  <th>Patient &amp; Admission</th>
+                  <th>Medicine &amp; Qty</th>
+                  <th>Amount (₹)</th>
+                  <th>Dispense Status</th>
+                  <th>Payment Status</th>
+                  <th>Counter / Token</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="phmTransactionsTbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 5: BILLING & INSURANCE DESK -->
+      <section id="dept-billing" class="dept-view">
+        <div class="grid-2col">
+
+          <!-- Add Hospital Itemized Charge -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-calculator" style="color: var(--cyan-primary);"></i> Add
+                Itemized Hospital Charge</span>
+              <span class="badge badge-info">Billing Officer</span>
+            </div>
+
+            <form id="addBillItemForm" onsubmit="event.preventDefault(); handleAddBillItem();">
+              <div class="form-group">
+                <label class="form-label" for="billAdmissionSelect">Patient / Admission</label>
+                <select id="billAdmissionSelect" class="form-control" required
+                  onchange="handleBillAdmissionChange(true)">
+                  <option value="" disabled selected>Select Patient / Admission</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="billDesc">Charge Description</label>
+                <input type="text" id="billDesc" class="form-control"
+                  placeholder="Select category &amp; patient to auto-fill description" required>
+              </div>
+
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="billCategory">Category</label>
+                  <select id="billCategory" class="form-control" required onchange="handleBillCategoryChange()">
+                    <option value="" disabled selected>Select Category</option>
+                    <option value="Room Rent">Room Rent</option>
+                    <option value="Consultation">Consultation</option>
+                    <option value="Pharmacy">Pharmacy</option>
+                    <option value="Diagnostics">Diagnostics</option>
+                    <option value="Procedures">Procedures</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="billAmount">Amount (₹)</label>
+                  <input type="number" id="billAmount" class="form-control" placeholder="0.00" step="0.01" min="0"
+                    required>
+                  <div id="billRoomRentHelper"
+                    style="display: none; font-size: 11px; margin-top: 5px; line-height: 1.4;"></div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                <i class="fa-solid fa-plus-circle"></i> Add Charge &amp; Recalculate Balance
+              </button>
+            </form>
+
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
+
+            <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px;">Cashless Insurance Claim Approval
+              Pipeline</div>
+            <div style="display: flex; gap: 8px;">
+              <select id="insuranceClaimStatusSelect" class="form-control" required>
+                <option value="" disabled selected>Select Claim Status</option>
+                <option value="Submitted">1. Submitted</option>
+                <option value="Under Review">2. Under Review</option>
+                <option value="Approved">3. Approved (₹50,000)</option>
+                <option value="Settled">4. Settled (Discharge Clearance)</option>
+              </select>
+              <button class="btn btn-success" onclick="handleUpdateInsuranceStatus()">Update</button>
+            </div>
+          </div>
+
+          <!-- Caregiver Payment Ledger -->
+          <div class="card-panel">
+            <div class="panel-header">
+              <span class="panel-title"><i class="fa-solid fa-receipt" style="color: var(--cyan-primary);"></i>
+                Caregiver Payment Reconciliation Ledger</span>
+              <span class="badge badge-success">Real-time Payments</span>
+            </div>
+
+            <table class="hms-table">
+              <thead>
+                <tr>
+                  <th>Txn ID</th>
+                  <th>Date</th>
+                  <th>Mode</th>
+                  <th>Amount</th>
+                  <th>Receipt</th>
+                </tr>
+              </thead>
+              <tbody id="paymentLedgerTbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEPARTMENT 6: LIVE DATABASE INSPECTOR -->
+      <section id="dept-inspector" class="dept-view">
+        <div class="card-panel">
+          <div class="panel-header">
+            <span class="panel-title"><i class="fa-solid fa-database" style="color: var(--cyan-primary);"></i> Live
+              MySQL Database Tables Inspector (`carebridge_db`)</span>
+            <span class="badge badge-info">13 Relational Tables</span>
+          </div>
+
+          <div class="grid-3col" style="margin-bottom: 20px;">
+            <div
+              style="background: var(--surface-variant); padding: 12px; border-radius: var(--radius-md); font-size: 12px;">
+              <div>Total Admitted Patients</div>
+              <div id="statPatientsCount" style="font-size: 20px; font-weight: 800; color: var(--cyan-primary);">1</div>
+            </div>
+            <div
+              style="background: var(--surface-variant); padding: 12px; border-radius: var(--radius-md); font-size: 12px;">
+              <div>Treatment Notes Logged</div>
+              <div id="statTreatmentsCount" style="font-size: 20px; font-weight: 800; color: var(--emerald-success);">2
+              </div>
+            </div>
+            <div
+              style="background: var(--surface-variant); padding: 12px; border-radius: var(--radius-md); font-size: 12px;">
+              <div>Hospital Ledger Balance</div>
+              <div id="statBillBalance" style="font-size: 20px; font-weight: 800; color: var(--amber-warning);">
+                ₹14,500.00</div>
+            </div>
+          </div>
+
+          <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px;">Select MySQL Table View:</div>
+          <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto;">
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('patients')">patients</button>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('caregivers')">caregivers</button>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('treatment_updates')">treatment_updates</button>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('lab_reports')">lab_reports</button>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('prescriptions')">prescriptions</button>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;"
+              onclick="inspectTable('payments')">payments</button>
+          </div>
+
+          <div id="tableInspectorContainer" style="overflow-x: auto;">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <div id="dischargeModal" role="dialog" aria-modal="true" aria-labelledby="dischargeModalTitle"
+    style="display: none; position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, 0.55);">
+    <div class="card-panel" style="width: min(100%, 580px); max-height: 90vh; overflow-y: auto; margin: 0;">
+      <div class="panel-header">
+        <span id="dischargeModalTitle" class="panel-title">Discharge Admission</span>
+      </div>
+      <div style="display: grid; gap: 8px; margin-bottom: 16px; font-size: 13px;">
+        <div><strong>Patient:</strong> <span id="dischargePatientName"></span></div>
+        <div><strong>Patient ID:</strong> <span id="dischargePatientId"></span></div>
+        <div><strong>Admission ID:</strong> <span id="dischargeAdmissionId"></span></div>
+        <div><strong>Current caregiver:</strong> <span id="dischargeCaregiver"></span></div>
+      </div>
+
+      <!-- File Attachment Control for Discharge Summary (Req 1.2) -->
+      <div class="form-group">
+        <label class="form-label">Discharge Summary Document <span style="font-weight: 400; color: var(--text-secondary);">(Upload PDF / DOC / DOCX / Image)</span></label>
+        <input type="file" id="dischargeFileInput" accept=".pdf,.doc,.docx,image/*" style="display: none;" onchange="handleDischargeFileSelect(event)">
+        <div id="dischargeUploadArea" style="border: 2px dashed var(--cyan-primary); border-radius: var(--radius-md); padding: 18px; text-align: center; background: var(--surface-variant); cursor: pointer; transition: background 0.2s;" onclick="document.getElementById('dischargeFileInput').click()">
+          <i class="fa-solid fa-file-arrow-up" style="font-size: 28px; color: var(--cyan-primary); margin-bottom: 6px;"></i>
+          <div style="font-size: 13px; font-weight: 700; color: var(--navy-dark);">Click to attach Discharge Summary file</div>
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 3px;">PDF, DOC, DOCX, or Image (Max 15MB)</div>
+        </div>
+
+        <div id="dischargeFileCard" style="display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: #f8fafc; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+            <i class="fa-solid fa-file-medical" style="font-size: 24px; color: var(--cyan-primary); flex-shrink: 0;"></i>
+            <div style="overflow: hidden;">
+              <div id="dischargeFileNameDisplay" style="font-weight: 600; font-size: 12px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">summary.pdf</div>
+              <div id="dischargeFileSizeDisplay" style="font-size: 11px; color: var(--text-secondary);">0 KB</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px; flex-shrink: 0;">
+            <button type="button" id="dischargePreviewBtn" class="btn btn-outline" style="padding: 3px 8px; font-size: 11px;" onclick="previewDischargeFile()">
+              <i class="fa-solid fa-eye"></i> Preview / Download
+            </button>
+            <button type="button" class="btn btn-outline" style="padding: 3px 8px; font-size: 11px;" onclick="document.getElementById('dischargeFileInput').click()">
+              <i class="fa-solid fa-arrows-rotate"></i> Replace
+            </button>
+            <button type="button" class="btn btn-outline" style="padding: 3px 8px; font-size: 11px; color: var(--rose-danger); border-color: var(--rose-danger);" onclick="removeDischargeFile()">
+              <i class="fa-solid fa-trash"></i> Remove
+            </button>
+          </div>
+        </div>
+        <input type="hidden" id="dischargeFileUrl">
+        <input type="hidden" id="dischargeFileNameVal">
+        <input type="hidden" id="dischargeSummary">
+
+        <!-- Read-only legacy text summary display for existing records (Req 1.2) -->
+        <div id="legacyDischargeSummaryContainer" style="display: none; margin-top: 12px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: var(--radius-sm); font-size: 12px;">
+          <div style="font-weight: 700; color: #92400e; margin-bottom: 4px;"><i class="fa-solid fa-clock-rotate-left"></i> Existing Discharge Summary (Legacy Record):</div>
+          <div id="legacyDischargeSummaryText" style="color: #78350f; white-space: pre-wrap; font-family: inherit;"></div>
+        </div>
+      </div>
+
+      <div id="dischargeError" role="alert"
+        style="display: none; color: var(--rose-danger); font-size: 13px; margin-bottom: 12px;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button id="cancelDischargeButton" type="button" class="btn btn-outline"
+          onclick="closeDischargeModal()">Cancel</button>
+        <button id="confirmDischargeButton" type="button" class="btn btn-warning"
+          onclick="confirmAdmissionDischarge()">Confirm Discharge</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Patient Transfer Modal -->
+  <div id="transferModal" role="dialog" aria-modal="true" aria-labelledby="transferModalTitle"
+    style="display: none; position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, 0.55);">
+    <div class="card-panel"
+      style="width: min(100%, 580px); max-height: 90vh; overflow-y: auto; margin: 0; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);">
+      <div class="panel-header"
+        style="border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px;">
+        <span id="transferModalTitle" class="panel-title"
+          style="font-size: 16px; font-weight: 700; color: var(--navy-dark); display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-arrows-turn-to-dots" style="color: var(--cyan-primary);"></i> Transfer Patient (Change
+          Dept / Room)
+        </span>
+      </div>
+
+      <!-- Current Admission Summary (Admission ID stays unchanged) -->
+      <div
+        style="background: var(--surface-variant); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; font-size: 13px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div><strong>Patient:</strong> <span id="transferPatientName"></span></div>
+          <div><strong>Patient ID:</strong> <span id="transferPatientId"
+              style="font-family: monospace; font-weight: 700;"></span></div>
+          <div><strong>Admission ID:</strong> <span id="transferAdmissionId"
+              style="font-family: monospace; font-weight: 700; color: var(--cyan-primary);"></span></div>
+          <div><strong>Current Location:</strong> <span id="transferCurrentLocation"></span></div>
+          <div style="grid-column: span 2;"><strong>Current Doctor:</strong> <span id="transferCurrentDoctor"></span>
+          </div>
+        </div>
+        <div
+          style="margin-top: 8px; font-size: 11px; color: var(--text-secondary); border-top: 1px dashed var(--border); padding-top: 6px;">
+          <i class="fa-solid fa-circle-info"></i> Note: Patient ID and Admission ID remain strictly unchanged during
+          transfers.
+        </div>
+      </div>
+
+      <!-- Transfer Target Form -->
+      <form id="transferPatientForm" onsubmit="event.preventDefault(); confirmAdmissionTransfer();">
+        <div class="form-group">
+          <label class="form-label" for="transferDept">Current Department</label>
+          <input type="text" id="transferDept" class="form-control" readonly
+            style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;" placeholder="Current Department">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="transferDoctor">Attending Doctor</label>
+          <select id="transferDoctor" class="form-control">
+            <option value="" disabled selected>Select Doctor</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="transferRoom">Target Ward / Room / Bed</label>
+          <select id="transferRoom" class="form-control" required>
+            <option value="" disabled selected>Select Target Ward & Room</option>
+            <option value="Room 205">Room 205</option>
+            <option value="ICU Room 303">ICU Room 303</option>
+            <option value="ICU Room 101">ICU Room 101</option>
+            <option value="ICU Room 102">ICU Room 102</option>
+            <option value="ICU Room 201">ICU Room 201</option>
+            <option value="ICU Room 304">ICU Room 304</option>
+            <option value="Pulmo Ward Bed 1">Pulmo Ward Bed 1</option>
+            <option value="Pulmo Ward Bed 2">Pulmo Ward Bed 2</option>
+            <option value="General Ward A - Bed 1">General Ward A - Bed 1</option>
+            <option value="General Ward A - Bed 2">General Ward A - Bed 2</option>
+            <option value="General Ward A - Bed 3">General Ward A - Bed 3</option>
+            <option value="General Ward B - Bed 1">General Ward B - Bed 1</option>
+            <option value="General Ward B - Bed 2">General Ward B - Bed 2</option>
+            <option value="General Ward B - Bed 3">General Ward B - Bed 3</option>
+            <option value="Private Room 501">Private Room 501</option>
+            <option value="Private Room 502">Private Room 502</option>
+            <option value="Private Room 503">Private Room 503</option>
+            <option value="Semi-Private Room 401">Semi-Private Room 401</option>
+            <option value="Semi-Private Room 402">Semi-Private Room 402</option>
+            <option value="Paediatric Ward - Bed 1">Paediatric Ward - Bed 1</option>
+            <option value="Paediatric Ward - Bed 2">Paediatric Ward - Bed 2</option>
+            <option value="Maternity Ward - Room 1">Maternity Ward - Room 1</option>
+            <option value="Maternity Ward - Room 2">Maternity Ward - Room 2</option>
+            <option value="Emergency Bay 1">Emergency Bay 1</option>
+            <option value="Emergency Bay 2">Emergency Bay 2</option>
+          </select>
+          <div id="transferRoomStatus" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="transferReason">Transfer Reason / Clinical Notes</label>
+          <input type="text" id="transferReason" class="form-control"
+            placeholder="Clinical justification for transfer (e.g. ICU step-down to Pulmonology ward)" required>
+        </div>
+
+        <div id="transferError" role="alert"
+          style="display: none; color: var(--rose-danger); background: #fee2e2; border: 1px solid #fca5a5; padding: 10px; border-radius: 6px; font-size: 13px; margin-bottom: 14px;">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+          <button id="cancelTransferButton" type="button" class="btn btn-outline"
+            onclick="closeTransferModal()">Cancel</button>
+          <button id="confirmTransferButton" type="submit" class="btn btn-primary"
+            style="background: #0284c7; color: #fff;">Confirm Transfer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <script src="validation.js"></script>
+  <script src="hms_app.js"></script>
+  <script src="custom_dropdown.js"></script>
+</body>
+
+</html>

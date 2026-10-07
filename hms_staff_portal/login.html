@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HMS Portal</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body.login-body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg, var(--navy-dark) 0%, #1e3a5f 100%);
+      padding: 20px;
+    }
+    .login-card {
+      background: var(--surface);
+      width: 100%;
+      max-width: 400px;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px -10px rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+    .login-card-header {
+      padding: 28px 32px 20px 32px;
+      text-align: center;
+    }
+    .login-card-body {
+      padding: 8px 32px 32px 32px;
+    }
+    .login-icon {
+      width: 60px;
+      height: 60px;
+      background: rgba(2, 132, 199, 0.12);
+      color: var(--cyan-primary);
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 12px;
+      border: 1px solid rgba(2, 132, 199, 0.25);
+    }
+    .login-title { font-size: 20px; font-weight: 800; color: var(--navy-dark); margin-bottom: 4px; }
+    .login-subtitle { font-size: 12.5px; color: var(--text-secondary); }
+    .field-error {
+      color: #dc2626;
+      font-size: 11.5px;
+      font-weight: 600;
+      margin-top: 4px;
+      display: none;
+    }
+    .input-invalid {
+      border-color: #dc2626 !important;
+      background: #fef2f2;
+    }
+    #loginAlert {
+      display: none;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+    .demo-creds {
+      margin-top: 22px;
+      padding: 12px 14px;
+      background: var(--surface-variant);
+      border-radius: 10px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+    .demo-creds strong { color: var(--navy-dark); }
+  </style>
+</head>
+<body class="login-body">
+
+  <div class="login-card">
+    <div class="login-card-header">
+      <div class="login-icon"><i class="fa-solid fa-hospital-user"></i></div>
+      <div class="login-title">HMS Staff Portal</div>
+      <div class="login-subtitle">Sign in with your department staff credentials</div>
+    </div>
+
+    <div class="login-card-body">
+      <div id="loginAlert"><i class="fa-solid fa-circle-exclamation"></i> <span id="loginAlertText"></span></div>
+
+      <form id="staffLoginForm" novalidate onsubmit="event.preventDefault(); handleStaffLoginSubmit();">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" id="loginUsername" class="form-control" placeholder="e.g. doctor" autocomplete="username">
+          <div class="field-error" id="err-loginUsername">Username is required.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" autocomplete="current-password">
+          <div class="field-error" id="err-loginPassword">Password is required.</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 6px;">
+          <i class="fa-solid fa-right-to-bracket"></i> Sign In
+        </button>
+      </form>
+
+      <div class="demo-creds">
+        <strong>Demo staff accounts</strong> (username / password):<br>
+        Reception: <strong>reception / reception123</strong><br>
+        Duty Nurse: <strong>nurse / nurse123</strong><br>
+        Doctor: <strong>doctor / doctor123</strong><br>
+        Laboratory: <strong>lab / lab123</strong><br>
+        Pharmacy: <strong>pharmacy / pharmacy123</strong><br>
+        Billing: <strong>billing / billing123</strong><br>
+      <!--  Admin (all access): <strong>admin / admin123</strong> -->
+      </div>
+    </div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="login.js"></script>
+</body>
+</html>
