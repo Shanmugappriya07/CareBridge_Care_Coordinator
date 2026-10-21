@@ -215,6 +215,7 @@
 
     trigger.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (select.disabled) return;
       toggleMenu();
     });
 
@@ -252,6 +253,21 @@
         }
       } else if (e.key === 'Escape') {
         closeMenu();
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const char = e.key.toLowerCase();
+        const matchIdx = items.findIndex(it => it.textContent.trim().toLowerCase().startsWith(char));
+        if (matchIdx >= 0) {
+          highlightedIndex = matchIdx;
+          items.forEach((it, idx) => {
+            it.classList.toggle('is-highlighted', idx === highlightedIndex);
+          });
+          if (items[highlightedIndex]) {
+            items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+          }
+          if (!wrapper.classList.contains('is-open')) {
+            items[highlightedIndex].click();
+          }
+        }
       }
     });
 

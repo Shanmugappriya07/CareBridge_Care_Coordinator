@@ -71,6 +71,46 @@ CREATE TABLE lab_reports (
     FOREIGN KEY (admission_id) REFERENCES patients(admission_id) ON DELETE CASCADE
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 3b. Assigned Lab Reports / Required Investigations (Duty Nurse assignment)
+CREATE TABLE IF NOT EXISTS lab_assignments (
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    admission_id       VARCHAR(64) NOT NULL,
+    patient_id         VARCHAR(64) NOT NULL,
+    investigation_name VARCHAR(160) NOT NULL,
+    category           VARCHAR(64) NOT NULL DEFAULT 'Pathology',
+    status             VARCHAR(32) NOT NULL DEFAULT 'ASSIGNED',
+    assigned_by        VARCHAR(128) NOT NULL DEFAULT 'Duty Nurse',
+    appointment_id     INT NULL,
+    report_id          VARCHAR(64) NULL,
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_lab_assign_adm (admission_id),
+    INDEX idx_lab_assign_pat (patient_id),
+    INDEX idx_lab_assign_status (status),
+    FOREIGN KEY (admission_id) REFERENCES patients(admission_id) ON DELETE CASCADE
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3c. Doctor Appointments / Visit Schedules
+CREATE TABLE IF NOT EXISTS doctor_appointments (
+    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    admission_id         VARCHAR(64) NOT NULL,
+    patient_id           VARCHAR(64) NOT NULL,
+    doctor_name          VARCHAR(128) NOT NULL,
+    department           VARCHAR(64) NOT NULL,
+    appointment_date     DATE NOT NULL,
+    appointment_time     VARCHAR(32) NOT NULL,
+    appointment_type     VARCHAR(160) NOT NULL DEFAULT 'Regular Physician Visit',
+    room                 VARCHAR(64) NULL,
+    status               VARCHAR(32) NOT NULL DEFAULT 'SCHEDULED',
+    scheduled_by         VARCHAR(128) NOT NULL DEFAULT 'Duty Nurse',
+    assigned_lab_reports VARCHAR(255) NULL,
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_doc_app_adm (admission_id),
+    INDEX idx_doc_app_date (appointment_date),
+    FOREIGN KEY (admission_id) REFERENCES patients(admission_id) ON DELETE CASCADE
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 4. Prescriptions / pharmacy dispensing queue
 CREATE TABLE prescriptions (
     id            VARCHAR(64) PRIMARY KEY,

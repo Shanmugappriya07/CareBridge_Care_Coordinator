@@ -40,6 +40,7 @@ CALL AddColumnIfNotExists('patients', 'admission_time', "TIME DEFAULT NULL");
 CALL AddColumnIfNotExists('treatments', 'patient_id', "VARCHAR(64) DEFAULT NULL");
 CALL AddColumnIfNotExists('lab_reports', 'patient_id', "VARCHAR(64) DEFAULT NULL");
 CALL AddColumnIfNotExists('prescriptions', 'patient_id', "VARCHAR(64) DEFAULT NULL");
+CALL AddColumnIfNotExists('doctor_appointments', 'assigned_lab_reports', "VARCHAR(255) DEFAULT NULL");
 
 -- 1. Patients Master (Unique Patient Identity)
 CREATE TABLE IF NOT EXISTS patients_master (
@@ -90,8 +91,28 @@ CREATE TABLE IF NOT EXISTS doctor_appointments (
     appointment_type VARCHAR(160) NOT NULL,
     room             VARCHAR(128) DEFAULT '',
     status           VARCHAR(32) NOT NULL DEFAULT 'SCHEDULED',
+    assigned_lab_reports VARCHAR(255) DEFAULT NULL,
     scheduled_by     VARCHAR(128) NOT NULL DEFAULT 'Duty Nurse',
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admission_id) REFERENCES patients(admission_id) ON DELETE CASCADE
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4b. Assigned Lab Reports / Required Investigations (Duty Nurse assignment)
+CREATE TABLE IF NOT EXISTS lab_assignments (
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    admission_id       VARCHAR(64) NOT NULL,
+    patient_id         VARCHAR(64) NOT NULL,
+    investigation_name VARCHAR(160) NOT NULL,
+    category           VARCHAR(64) NOT NULL DEFAULT 'Pathology',
+    status             VARCHAR(32) NOT NULL DEFAULT 'ASSIGNED',
+    assigned_by        VARCHAR(128) NOT NULL DEFAULT 'Duty Nurse',
+    appointment_id     INT NULL,
+    report_id          VARCHAR(64) NULL,
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_lab_assign_adm (admission_id),
+    INDEX idx_lab_assign_pat (patient_id),
+    INDEX idx_lab_assign_status (status),
     FOREIGN KEY (admission_id) REFERENCES patients(admission_id) ON DELETE CASCADE
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

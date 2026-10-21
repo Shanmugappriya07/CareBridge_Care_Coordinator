@@ -303,9 +303,14 @@ select.custom-select-hidden {
 }
 
 .custom-select-trigger.is-disabled {
-  background-color: #f8fafc;
+  background-color: #f1f5f9;
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.custom-select-trigger.is-disabled .custom-select-arrow {
+  opacity: 0.35;
 }
 
 .custom-select-label {

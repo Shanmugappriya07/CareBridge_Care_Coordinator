@@ -364,126 +364,264 @@
 
       <!-- DEPARTMENT 2: DUTY NURSE & VISIT SCHEDULING (Req 5) -->
       <section id="dept-nurse" class="dept-view">
-        <div class="grid-2col">
+        <!-- Duty Nurse Sub-Navigation: Doctor Visit Scheduling vs Lab Test Assignment -->
+        <div class="nurse-subnav-container" style="display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 2px solid var(--border, #e2e8f0); padding-bottom: 12px;">
+          <button type="button" class="btn btn-primary" id="nurseSubnavSchedulingBtn" onclick="switchNurseSubTab('scheduling')" style="font-weight: 600; padding: 8px 18px; border-radius: var(--radius-md, 8px);">
+            <i class="fa-solid fa-calendar-check"></i> Doctor Visit Scheduling
+          </button>
+          <button type="button" class="btn btn-outline" id="nurseSubnavLabAssignBtn" onclick="switchNurseSubTab('lab-assignment')" style="font-weight: 600; padding: 8px 18px; border-radius: var(--radius-md, 8px);">
+            <i class="fa-solid fa-flask-vial"></i> Lab Test Assignment
+          </button>
+        </div>
 
-          <!-- Duty Nurse Schedule Form -->
-          <div class="card-panel">
-            <div class="panel-header">
-              <span class="panel-title"><i class="fa-solid fa-calendar-check" style="color: var(--cyan-primary);"></i>
-                Duty Nurse: Schedule Doctor Visits </span>
-              <span class="badge badge-info">Operational Staff Scheduling</span>
-            </div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
-              Duty nurses assign patients and admissions to available doctors. The scheduled visits appear
-              directly in the doctor's consultation console.
-            </div>
+        <!-- SUBVIEW 1: DOCTOR VISIT SCHEDULING -->
+        <div id="nurse-subview-scheduling">
+          <div class="grid-2col">
 
-            <form id="hmsScheduleForm" onsubmit="event.preventDefault(); handleSaveSchedule();">
-              <input type="hidden" id="scheduleRecordId">
-              <div class="form-group">
-                <label class="form-label" for="scheduleAdmissionSelect">Active Patient / Admission</label>
-                <select id="scheduleAdmissionSelect" class="form-control" onchange="updateScheduleDoctorDisplay()"
-                  required>
-                  <option value="" disabled selected>Select Patient / Admission</option>
-                </select>
+            <!-- Duty Nurse Schedule Form -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-calendar-check" style="color: var(--cyan-primary);"></i>
+                  Duty Nurse: Schedule Doctor Visits </span>
+                <span class="badge badge-info">Operational Staff Scheduling</span>
+              </div>
+              <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+                Duty nurses assign patients and admissions to available doctors. The scheduled visits appear
+                directly in the doctor's consultation console.
               </div>
 
-              <!-- Patient Info Preview (Auto-populated from Active Admission) -->
-              <div
-                style="background: var(--surface-variant); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <div>Patient: <strong id="schedulePatientDisplay">-</strong></div>
-                <div>Patient ID: <strong id="schedulePatientIdDisplay" style="font-family: monospace;">-</strong></div>
-                <div>Admission ID: <strong id="scheduleAdmissionIdDisplay"
-                    style="font-family: monospace; color: var(--cyan-primary);">-</strong></div>
-                <div>Current Department: <strong id="scheduleDeptDisplay">-</strong></div>
-                <div style="grid-column: span 2;">Current Location: <strong id="scheduleRoomDisplay">-</strong></div>
-              </div>
-
-              <div class="grid-2col">
+              <form id="hmsScheduleForm" onsubmit="event.preventDefault(); handleSaveSchedule();">
+                <input type="hidden" id="scheduleRecordId">
                 <div class="form-group">
-                  <label class="form-label" for="scheduleDoctorSelect">Assign Doctor (Read-Only)</label>
-                  <select id="scheduleDoctorSelect" class="form-control" required disabled
-                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
-                    onchange="handleScheduleDoctorChange()">
-                    <option value="" disabled selected>Select Doctor</option>
+                  <label class="form-label" for="scheduleAdmissionSelect">Active Patient / Admission</label>
+                  <select id="scheduleAdmissionSelect" class="form-control" onchange="updateScheduleDoctorDisplay()"
+                    required>
+                    <option value="" disabled selected>Select Patient / Admission</option>
                   </select>
                 </div>
-                <div class="form-group" id="scheduleStatusGroup">
-                  <label class="form-label" for="scheduleStatus">Status</label>
-                  <!-- Read-only status for new appointment creation -->
-                  <input type="text" id="scheduleStatusDisplay" class="form-control" readonly value="Scheduled"
-                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;" placeholder="Scheduled">
-                  <!-- Editable status dropdown visible exclusively in Edit mode -->
-                  <select id="scheduleStatus" class="form-control" style="display: none;">
-                    <option value="SCHEDULED">Scheduled</option>
-                    <option value="COMPLETED">Completed</option>
-                    <option value="CANCELLED">Cancelled</option>
+
+                <!-- Patient Info Preview (Auto-populated from Active Admission) -->
+                <div
+                  style="background: var(--surface-variant); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <div>Patient: <strong id="schedulePatientDisplay">-</strong></div>
+                  <div>Patient ID: <strong id="schedulePatientIdDisplay" style="font-family: monospace;">-</strong></div>
+                  <div>Admission ID: <strong id="scheduleAdmissionIdDisplay"
+                      style="font-family: monospace; color: var(--cyan-primary);">-</strong></div>
+                  <div>Current Department: <strong id="scheduleDeptDisplay">-</strong></div>
+                  <div style="grid-column: span 2;">Current Location: <strong id="scheduleRoomDisplay">-</strong></div>
+                </div>
+
+                <div class="grid-2col">
+                  <div class="form-group">
+                    <label class="form-label" for="scheduleDoctorSelect">Assign Doctor (Read-Only)</label>
+                    <select id="scheduleDoctorSelect" class="form-control" required disabled
+                      style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                      onchange="handleScheduleDoctorChange()">
+                      <option value="" disabled selected>Select Doctor</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="scheduleStatusGroup">
+                    <label class="form-label" for="scheduleStatus">Status</label>
+                    <!-- Read-only status for new appointment creation -->
+                    <input type="text" id="scheduleStatusDisplay" class="form-control" readonly value="Scheduled"
+                      style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;" placeholder="Scheduled">
+                    <!-- Editable status dropdown visible exclusively in Edit mode -->
+                    <select id="scheduleStatus" class="form-control" style="display: none;">
+                      <option value="SCHEDULED">Scheduled</option>
+                      <option value="COMPLETED">Completed</option>
+                      <option value="CANCELLED">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="grid-2col">
+                  <div class="form-group">
+                    <label class="form-label" for="scheduleEventDate">Visit Date (Read-Only)</label>
+                    <input id="scheduleEventDate" class="form-control" type="date" required readonly
+                      style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;">
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Auto-filled from patient context.</div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="scheduleAppointmentTime">Visit Time</label>
+                    <input id="scheduleAppointmentTime" class="form-control" type="time" required>
+                  </div>
+                </div>
+
+                <div class="grid-2col">
+                  <div class="form-group">
+                    <label class="form-label" for="scheduleAppointmentType">Visit Type / Reason (Read-Only)</label>
+                    <input id="scheduleAppointmentType" class="form-control" maxlength="160" readonly
+                      style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                      placeholder="Auto-populated from admission reason" required>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="scheduleRoom">Room / Location</label>
+                    <input type="text" id="scheduleRoom" class="form-control" readonly
+                      style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
+                      placeholder="Auto-populated from Active Admission" required>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                  <button id="scheduleSubmitButton" type="submit" class="btn btn-primary"><i
+                      class="fa-solid fa-calendar-plus"></i> Schedule Visit</button>
+                  <button id="scheduleClearButton" type="button" class="btn btn-outline"
+                    onclick="resetScheduleForm()">Clear</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Scheduled Appointments Queue -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-list-check" style="color: var(--cyan-primary);"></i>
+                  Scheduled Doctor Visits</span>
+                <span class="badge badge-info">Duty Nurse Ledger</span>
+              </div>
+
+              <div style="overflow-x: auto;">
+                <table class="hms-table">
+                  <thead>
+                    <tr>
+                      <th>Patient &amp; IDs</th>
+                      <th>Doctor &amp; Dept</th>
+                      <th>Date &amp; Time</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="scheduleTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- SUBVIEW 2: DEDICATED LAB TEST ASSIGNMENT FORM -->
+        <div id="nurse-subview-lab-assignment" style="display: none;">
+          <div class="grid-2col">
+
+            <!-- Dedicated Lab Test Assignment Form -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-flask-vial" style="color: var(--cyan-primary);"></i> Lab Test Assignment</span>
+                <span class="badge badge-info">Duty Nurse Orders</span>
+              </div>
+              <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+                Assign laboratory tests and investigations for active admitted patients. Assigned investigations are directly queued in the Lab Report Portal for diagnostic processing.
+              </div>
+
+              <form id="nurseLabAssignmentForm" novalidate onsubmit="event.preventDefault(); handleAssignLabTestsSubmit();">
+                <!-- Field 1: Select Patient -->
+                <div class="form-group" style="margin-bottom: 14px;">
+                  <label class="form-label" for="nurseLabAssignPatientSelect" style="font-weight: 600;">
+                    <i class="fa-solid fa-user"></i> Select Patient <span style="color: var(--rose-danger, #ef4444);">*</span>
+                  </label>
+                  <select id="nurseLabAssignPatientSelect" class="form-control" required onchange="handleNurseLabPatientSelectChange()">
+                    <option value="" disabled selected>-- Select Patient (Patient Name &amp; Patient ID) --</option>
                   </select>
-                </div>
-              </div>
 
-              <div class="grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="scheduleEventDate">Visit Date (Read-Only)</label>
-                  <input id="scheduleEventDate" class="form-control" type="date" required readonly
-                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;">
-                  <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Auto-filled from patient context.</div>
+                  <!-- Auto-identified Patient & Active Admission Preview -->
+                  <div id="nurseLabPatientContextCard" style="display: none; margin-top: 10px; background: var(--surface-variant, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 12px 14px; font-size: 13px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                      <div>Patient Name: <strong id="nlcPatientName">-</strong></div>
+                      <div>Patient ID: <strong id="nlcPatientId" style="font-family: monospace; color: var(--navy-dark);">-</strong></div>
+                      <div>Active Admission ID: <strong id="nlcAdmissionId" style="font-family: monospace; color: var(--cyan-primary);">-</strong> <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">Auto-Identified</span></div>
+                      <div>Department / Location: <strong id="nlcDeptRoom">-</strong></div>
+                    </div>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label class="form-label" for="scheduleAppointmentTime">Visit Time</label>
-                  <input id="scheduleAppointmentTime" class="form-control" type="time" required>
-                </div>
-              </div>
 
-              <div class="grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="scheduleAppointmentType">Visit Type / Reason (Read-Only)</label>
-                  <input id="scheduleAppointmentType" class="form-control" maxlength="160" readonly
-                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
-                    placeholder="Auto-populated from admission reason" required>
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="scheduleRoom">Room / Location</label>
-                  <input type="text" id="scheduleRoom" class="form-control" readonly
-                    style="background: #f1f5f9; cursor: not-allowed; font-weight: 600;"
-                    placeholder="Auto-populated from Active Admission" required>
-                </div>
-              </div>
+                <!-- Field 2: Assign Lab Tests -->
+                <div class="form-group" style="margin-bottom: 18px;">
+                  <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                    <span><i class="fa-solid fa-flask"></i> Assign Lab Tests <span style="color: var(--rose-danger, #ef4444);">*</span></span>
+                    <span style="font-size: 11px; font-weight: normal; color: var(--text-secondary);">Searchable multi-select</span>
+                  </label>
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                    Select one or more laboratory tests to be taken by the patient. Remove individual tests anytime before saving.
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <select id="nurseLabAvailableSelect" class="form-control" style="flex: 1;" onchange="handleNurseLabSelectOptionChange(this.value)">
+                      <option value="" selected disabled>-- Search &amp; select laboratory test to add --</option>
+                      <option value="Complete Blood Count (CBC)">Complete Blood Count (CBC) [Hematology]</option>
+                      <option value="Blood Glucose Fasting (FBS)">Blood Glucose Fasting (FBS) [Biochemistry]</option>
+                      <option value="Blood Glucose Postprandial (PPBS)">Blood Glucose Postprandial (PPBS) [Biochemistry]</option>
+                      <option value="HbA1c (Glycated Haemoglobin)">HbA1c (Glycated Haemoglobin) [Biochemistry]</option>
+                      <option value="Liver Function Test (LFT)">Liver Function Test (LFT) [Biochemistry]</option>
+                      <option value="Kidney Function Test (KFT)">Kidney Function Test (KFT) [Biochemistry]</option>
+                      <option value="Lipid Profile">Lipid Profile [Biochemistry]</option>
+                      <option value="Cardiac Enzymes (Troponin T)">Cardiac Enzymes (Troponin T) [Biochemistry]</option>
+                      <option value="Thyroid Function Test (TFT)">Thyroid Function Test (TFT) [Biochemistry]</option>
+                      <option value="Serum Electrolytes">Serum Electrolytes [Biochemistry]</option>
+                      <option value="Comprehensive Metabolic Panel (CMP)">Comprehensive Metabolic Panel (CMP) [Biochemistry]</option>
+                      <option value="Coagulation Profile (PT/INR)">Coagulation Profile (PT/INR) [Hematology]</option>
+                      <option value="Urine Routine &amp; Microscopy">Urine Routine &amp; Microscopy [Microbiology]</option>
+                      <option value="Blood Culture &amp; Sensitivity">Blood Culture &amp; Sensitivity [Microbiology]</option>
+                      <option value="Chest X-Ray (PA View)">Chest X-Ray (PA View) [Radiology]</option>
+                      <option value="Ultrasound Abdomen &amp; Pelvis">Ultrasound Abdomen &amp; Pelvis [Radiology]</option>
+                      <option value="12-Lead ECG">12-Lead ECG [Cardiology]</option>
+                    </select>
+                    <button type="button" id="nurseLabAddTestBtn" class="btn btn-outline" style="white-space: nowrap; padding: 6px 14px;" onclick="addNurseLabSelectedFromDropdown()">
+                      <i class="fa-solid fa-plus"></i> Add Test
+                    </button>
+                  </div>
 
-              <div style="display: flex; gap: 10px;">
-                <button id="scheduleSubmitButton" type="submit" class="btn btn-primary"><i
-                    class="fa-solid fa-calendar-plus"></i> Schedule Visit</button>
-                <button id="scheduleClearButton" type="button" class="btn btn-outline"
-                  onclick="resetScheduleForm()">Clear</button>
-              </div>
-            </form>
-          </div>
+                  <!-- Selected Tests Container (Chips / Tags) -->
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+                    Selected Tests (<span id="nurseLabSelectedCount">0</span> selected):
+                  </div>
+                  <div id="nurseLabSelectedChipsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: var(--surface-variant, #f8fafc); border: 1px dashed var(--border, #cbd5e1); border-radius: var(--radius-md, 8px); min-height: 44px; align-items: center;">
+                    <span id="nurseLabNoTestsNotice" style="font-size: 12px; color: var(--text-secondary); font-style: italic;">No lab tests selected yet. Choose one or more tests from the list above.</span>
+                  </div>
+                </div>
 
-          <!-- Scheduled Appointments Queue -->
-          <div class="card-panel">
-            <div class="panel-header">
-              <span class="panel-title"><i class="fa-solid fa-list-check" style="color: var(--cyan-primary);"></i>
-                Scheduled Doctor Visits</span>
-              <span class="badge badge-info">Duty Nurse Ledger</span>
+                <!-- Status alerts -->
+                <div id="nurseLabAssignSuccessAlert" class="alert alert-success" style="display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: var(--radius-md); background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13px;">
+                  <i class="fa-solid fa-circle-check"></i> <span id="nurseLabAssignSuccessMsg">Tests assigned successfully!</span>
+                </div>
+                <div id="nurseLabAssignErrorAlert" class="alert alert-danger" style="display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: var(--radius-md); background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 13px;">
+                  <i class="fa-solid fa-circle-exclamation"></i> <span id="nurseLabAssignErrorMsg">Please select a patient and at least one lab test.</span>
+                </div>
+
+                <!-- Button: Assign Tests -->
+                <div style="display: flex; gap: 10px;">
+                  <button type="submit" id="btnAssignLabTests" class="btn btn-primary" style="padding: 9px 20px; font-weight: 600;">
+                    <i class="fa-solid fa-flask-vial"></i> Assign Tests
+                  </button>
+                  <button type="button" class="btn btn-outline" onclick="resetNurseLabAssignmentForm()">Clear</button>
+                </div>
+              </form>
             </div>
 
-            <div style="overflow-x: auto;">
-              <table class="hms-table">
-                <thead>
-                  <tr>
-                    <th>Patient &amp; IDs</th>
-                    <th>Doctor &amp; Dept</th>
-                    <th>Date &amp; Time</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="scheduleTableBody"></tbody>
-              </table>
+            <!-- Active Lab Test Assignments Ledger -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-list-check" style="color: var(--cyan-primary);"></i> Active Lab Test Assignments</span>
+                <span class="badge badge-info" id="nurseLabTotalAssignmentsBadge">0 Assignments</span>
+              </div>
+              <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+                Real-time tracking of investigations assigned by the Duty Nurse. Status updates to Report Uploaded once processed by the Lab Staff.
+              </div>
+              <div style="overflow-x: auto;">
+                <table class="hms-table">
+                  <thead>
+                    <tr>
+                      <th>Patient &amp; Admission</th>
+                      <th>Assigned Investigation</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Assigned At</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nurseLabAssignmentsLedgerBody"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
 
+          </div>
         </div>
       </section>
 
@@ -849,31 +987,20 @@
 
               <div class="grid-2col">
                 <div class="form-group">
-                  <label class="form-label" for="labName">Test / Report Name</label>
-                  <select id="labName" class="form-control" required>
-                    <option value="" disabled selected>Select Test / Report Name</option>
-                    <option value="Complete Blood Count (CBC)">Complete Blood Count (CBC)</option>
-                    <option value="Comprehensive Metabolic Panel (CMP)">Comprehensive Metabolic Panel (CMP)</option>
-                    <option value="Liver Function Test (LFT)">Liver Function Test (LFT)</option>
-                    <option value="Kidney Function Test (KFT)">Kidney Function Test (KFT)</option>
-                    <option value="Lipid Profile">Lipid Profile</option>
-                    <option value="Cardiac Enzymes (Troponin T)">Cardiac Enzymes (Troponin T)</option>
-                    <option value="Blood Glucose Fasting (FBS)">Blood Glucose Fasting (FBS)</option>
-                    <option value="HbA1c (Glycated Haemoglobin)">HbA1c (Glycated Haemoglobin)</option>
-                    <option value="Thyroid Function Test (TFT)">Thyroid Function Test (TFT)</option>
-                    <option value="Urine Routine & Microscopy">Urine Routine & Microscopy</option>
-                    <option value="Blood Culture & Sensitivity">Blood Culture & Sensitivity</option>
-                    <option value="Coagulation Profile (PT/INR)">Coagulation Profile (PT/INR)</option>
-                    <option value="Sputum AFB Smear">Sputum AFB Smear</option>
-                    <option value="COVID-19 RT-PCR">COVID-19 RT-PCR</option>
+                  <label class="form-label" for="labName">Assigned Test / Report Name <span style="font-weight: 400; color: var(--text-secondary);">(Assigned by Duty Nurse)</span></label>
+                  <select id="labName" class="form-control" required disabled onchange="handleLabInvestigationSelectChange(this.value)">
+                    <option value="" disabled selected>Select a patient to view assigned investigations</option>
                   </select>
+                  <div id="labInvestigationHelpText" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                    Only investigations assigned to the selected active patient appear here.
+                  </div>
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label" for="labCategory">Category</label>
-                  <select id="labCategory" class="form-control" required>
+                  <label class="form-label" for="labCategory">Category <span style="font-weight: 400; color: var(--text-secondary);">(Auto-assigned &bull; Read-only)</span></label>
+                  <select id="labCategory" class="form-control" required disabled>
                     <option value="" disabled selected>Select Category</option>
-                    <option value="Pathology" selected>Pathology</option>
+                    <option value="Pathology">Pathology</option>
                     <option value="Biochemistry">Biochemistry</option>
                     <option value="Microbiology">Microbiology</option>
                     <option value="Hematology">Hematology</option>

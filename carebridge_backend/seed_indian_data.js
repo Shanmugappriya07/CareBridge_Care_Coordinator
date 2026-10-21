@@ -240,6 +240,23 @@ async function seedIndianData() {
         reasonForAdmission: 'Paediatric Observation & Care',
         admissionDate: '2026-10-05',
         admissionTime: '00:45:00'
+      },
+      {
+        admissionId: '26CAR008',
+        patientId: '26PAT0001',
+        admittingDept: 'Cardiology',
+        currentDept: 'Cardiology',
+        roomNumber: 'Cardio Ward Bed 3',
+        attendingDoctor: 'Dr. Aris Thorne (Cardiology)',
+        status: 'ADMITTED',
+        caregiverName: 'Priya Lakshmi',
+        caregiverId: 'CG-991823',
+        caregiverPhone: '+91 98765 43210',
+        relation: 'Daughter',
+        admissionType: 'Emergency',
+        reasonForAdmission: 'Cardiac evaluation and monitoring',
+        admissionDate: '2026-10-06',
+        admissionTime: '08:30:00'
       }
     ];
 
@@ -299,6 +316,44 @@ async function seedIndianData() {
     // 3. Update doctor appointments patient_id references and doctor names
     await conn.query("UPDATE doctor_appointments SET doctor_name = 'Dr. Anita Rao (Paediatrics)', department = 'Paediatrics' WHERE admission_id = '26CAR007'");
     console.log('Updated doctor appointments.');
+
+    // 4. Create lab_assignments table if not exists and seed investigations for 26CAR008
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS lab_assignments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admission_id VARCHAR(64) NOT NULL,
+        patient_id VARCHAR(64) NOT NULL,
+        investigation_name VARCHAR(160) NOT NULL,
+        category VARCHAR(64) NOT NULL DEFAULT 'Pathology',
+        status VARCHAR(32) NOT NULL DEFAULT 'ASSIGNED',
+        assigned_by VARCHAR(128) NOT NULL DEFAULT 'Duty Nurse',
+        appointment_id INT NULL,
+        report_id VARCHAR(64) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_lab_assign_adm (admission_id),
+        INDEX idx_lab_assign_pat (patient_id),
+        INDEX idx_lab_assign_status (status)
+      ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const assignedTests = [
+      { name: 'Complete Blood Count (CBC)', cat: 'Hematology' },
+      { name: 'Blood Glucose Fasting (FBS)', cat: 'Biochemistry' },
+      { name: 'Liver Function Test (LFT)', cat: 'Biochemistry' }
+    ];
+
+    for (const test of assignedTests) {
+      await conn.query(`
+        INSERT INTO lab_assignments (admission_id, patient_id, investigation_name, category, status, assigned_by)
+        SELECT '26CAR008', '26PAT0001', ?, ?, 'ASSIGNED', 'Duty Nurse Sister Lakshmi'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM lab_assignments 
+          WHERE admission_id = '26CAR008' AND LOWER(TRIM(investigation_name)) = LOWER(TRIM(?))
+        )
+      `, [test.name, test.cat, test.name]);
+    }
+    console.log('Seeded assigned investigations for Meenakshi Ravi (26CAR008).');
 
     await conn.query('SET FOREIGN_KEY_CHECKS = 1');
     await conn.commit();

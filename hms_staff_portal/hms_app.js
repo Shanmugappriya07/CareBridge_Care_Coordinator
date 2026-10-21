@@ -133,6 +133,8 @@ let backendPrescriptions = [];
 let backendPharmacyOrders = [];
 let backendLabReports = [];
 let backendMedicines = [];
+let backendLabAssignments = [];
+let dutyNurseSelectedInvestigations = [];
 let activeAdmissionsLoadInProgress = false;
 
 // Real-Time Cross-App Sync Engine (REST calls to the shared MySQL backend)
@@ -176,6 +178,9 @@ async function loadHmsDatabase() {
     }
     if (parsed && Array.isArray(parsed.medicines)) {
       backendMedicines = parsed.medicines;
+    }
+    if (parsed && Array.isArray(parsed.labAssignments)) {
+      backendLabAssignments = parsed.labAssignments;
     }
     updateHmsConnStatus(true);
   } catch (e) {
@@ -639,6 +644,9 @@ function renderAllHmsViews() {
   renderPharmacyTransactions();
   renderPaymentLedger();
   inspectTable('patients');
+  if (typeof loadAndRenderNurseLabAssignments === 'function') {
+    loadAndRenderNurseLabAssignments();
+  }
 }
 
 // Look up a patient's display-friendly label/name by admissionId. Used
@@ -786,7 +794,14 @@ function refreshPatientSelectors() {
         handleBillAdmissionChange(false);
       }
     }
+    if (id === 'labPatientSelect' && prevValue !== newValue) {
+      updateLabAssignedInvestigationsDropdown(newValue);
+    }
   });
+
+  if (typeof refreshNurseLabAssignmentPatientSelector === 'function') {
+    refreshNurseLabAssignmentPatientSelector();
+  }
 }
 
 // Poll the backend so updates made from the CareBridge mobile app
@@ -911,6 +926,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     trtPatSelect.addEventListener('change', () => renderVitalsHistory(trtPatSelect.value));
   }
 
+  const nurseLabSelect = document.getElementById('scheduleLabReportSelect');
+  if (nurseLabSelect) {
+    nurseLabSelect.addEventListener('change', () => {
+      if (nurseLabSelect.value) {
+        handleDutyNurseLabSelectChange(nurseLabSelect.value);
+      }
+    });
+  }
+
   document.getElementById('scheduleTableBody')?.addEventListener('click', event => {
     const button = event.target.closest('[data-schedule-record-id]');
     if (button) editScheduleRecord(button.dataset.scheduleRecordId);
@@ -940,6 +964,14 @@ function switchDept(deptId) {
   if (target) target.classList.add('active');
   if (deptId === 'reception') {
     initDobPicker();
+  }
+  if (deptId === 'nurse') {
+    if (typeof refreshNurseLabAssignmentPatientSelector === 'function') {
+      refreshNurseLabAssignmentPatientSelector();
+    }
+    if (typeof loadAndRenderNurseLabAssignments === 'function') {
+      loadAndRenderNurseLabAssignments();
+    }
   }
 }
 
@@ -1756,11 +1788,12 @@ async function confirmAdmissionDischarge() {
         body: JSON.stringify({ filename: selectedDischargeFile.name, fileData: base64Data })
       });
       const uploadResult = await uploadRes.json();
-      if (!uploadRes.ok || !uploadResult.url) {
-        throw new Error(uploadResult.error || 'Failed to upload discharge summary file');
+      const returnedUrl = uploadResult?.url || uploadResult?.fileUrl;
+      if (!uploadRes.ok || !returnedUrl) {
+        throw new Error(uploadResult?.error || 'Failed to upload discharge summary file');
       }
-      uploadedFileUrl = uploadResult.url;
-      uploadedFileName = uploadResult.filename || selectedDischargeFile.name;
+      uploadedFileUrl = returnedUrl;
+      uploadedFileName = uploadResult.filename || uploadResult.fileName || selectedDischargeFile.name;
     }
 
     const summaryPayload = uploadedFileUrl || document.getElementById('dischargeSummary')?.value || 'Discharged with attached documents.';
@@ -2422,6 +2455,347 @@ function handleScheduleDoctorChange() {
   // Read-only in visit flow
 }
 
+// ====================================================================
+// Duty Nurse: Sub-View Navigation (Doctor Scheduling vs Lab Test Assignment)
+// ====================================================================
+function switchNurseSubTab(tabName) {
+  const schedBtn = document.getElementById('nurseSubnavSchedulingBtn');
+  const labBtn = document.getElementById('nurseSubnavLabAssignBtn');
+  const schedView = document.getElementById('nurse-subview-scheduling');
+  const labView = document.getElementById('nurse-subview-lab-assignment');
+
+  if (tabName === 'lab-assignment') {
+    if (schedView) schedView.style.display = 'none';
+    if (labView) labView.style.display = 'block';
+    if (schedBtn) {
+      schedBtn.classList.remove('btn-primary');
+      schedBtn.classList.add('btn-outline');
+    }
+    if (labBtn) {
+      labBtn.classList.remove('btn-outline');
+      labBtn.classList.add('btn-primary');
+    }
+    refreshNurseLabAssignmentPatientSelector();
+    loadAndRenderNurseLabAssignments();
+  } else {
+    if (labView) labView.style.display = 'none';
+    if (schedView) schedView.style.display = 'block';
+    if (labBtn) {
+      labBtn.classList.remove('btn-primary');
+      labBtn.classList.add('btn-outline');
+    }
+    if (schedBtn) {
+      schedBtn.classList.remove('btn-outline');
+      schedBtn.classList.add('btn-primary');
+    }
+  }
+}
+
+// ====================================================================
+// Duty Nurse: Dedicated Lab Test Assignment Form
+// ====================================================================
+let nurseLabSelectedPatient = null;
+let nurseLabSelectedTests = [];
+let backendNurseLabAssignments = [];
+
+function refreshNurseLabAssignmentPatientSelector() {
+  const select = document.getElementById('nurseLabAssignPatientSelect');
+  if (!select) return;
+
+  const prevValue = select.value;
+  const patients = backendActiveAdmissions || [];
+  const options = patients.map(p => ({
+    value: p.admissionId,
+    text: `${p.fullName} — Patient ID: ${p.patientId || 'N/A'}`
+  }));
+
+  syncSelectOptions(select, options, '-- Select Patient (Patient Name & Patient ID) --');
+
+  if (select.value) {
+    handleNurseLabPatientSelectChange();
+  }
+}
+
+function handleNurseLabPatientSearchInput(query) {
+  const select = document.getElementById('nurseLabAssignPatientSelect');
+  if (!select) return;
+  const q = String(query || '').trim().toLowerCase();
+  const patients = backendActiveAdmissions || [];
+
+  select.innerHTML = '';
+  const defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.disabled = true;
+  defaultOpt.selected = !nurseLabSelectedPatient;
+  defaultOpt.textContent = '-- Select Patient (Patient Name & Patient ID) --';
+  select.appendChild(defaultOpt);
+
+  const filtered = q
+    ? patients.filter(p => (p.fullName || '').toLowerCase().includes(q) || (p.patientId || '').toLowerCase().includes(q) || (p.admissionId || '').toLowerCase().includes(q))
+    : patients;
+
+  filtered.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.admissionId;
+    opt.textContent = `${p.fullName} — Patient ID: ${p.patientId || 'N/A'}`;
+    if (nurseLabSelectedPatient && nurseLabSelectedPatient.admissionId === p.admissionId) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
+  });
+
+  if (typeof select._renderCustomDropdown === 'function') {
+    select._renderCustomDropdown();
+  }
+}
+
+function handleNurseLabPatientSelectChange() {
+  const select = document.getElementById('nurseLabAssignPatientSelect');
+  const admId = select?.value;
+  const contextCard = document.getElementById('nurseLabPatientContextCard');
+  const successAlert = document.getElementById('nurseLabAssignSuccessAlert');
+  const errorAlert = document.getElementById('nurseLabAssignErrorAlert');
+
+  if (successAlert) successAlert.style.display = 'none';
+  if (errorAlert) errorAlert.style.display = 'none';
+
+  if (!admId) {
+    nurseLabSelectedPatient = null;
+    if (contextCard) contextCard.style.display = 'none';
+    return;
+  }
+
+  const patient = (backendActiveAdmissions || []).find(p => p.admissionId === admId) ||
+                  (backendAdmissions || []).find(p => p.admissionId === admId);
+
+  if (patient) {
+    nurseLabSelectedPatient = patient;
+    if (contextCard) {
+      document.getElementById('nlcPatientName').textContent = patient.fullName || '-';
+      document.getElementById('nlcPatientId').textContent = patient.patientId || '-';
+      document.getElementById('nlcAdmissionId').textContent = patient.admissionId || '-';
+      document.getElementById('nlcDeptRoom').textContent = `${patient.department || patient.currentDept || 'General'} • Bed/Room: ${patient.roomNumber || patient.room || 'General Ward'}`;
+      contextCard.style.display = 'block';
+    }
+  } else {
+    nurseLabSelectedPatient = null;
+    if (contextCard) contextCard.style.display = 'none';
+  }
+}
+
+function handleNurseLabSelectOptionChange(val) {
+  if (!val) return;
+  addNurseLabTestToSelection(val);
+  const select = document.getElementById('nurseLabAvailableSelect');
+  if (select) {
+    select.value = '';
+    if (typeof select._renderCustomDropdown === 'function') {
+      select._renderCustomDropdown();
+    }
+  }
+}
+
+function addNurseLabSelectedFromDropdown() {
+  const select = document.getElementById('nurseLabAvailableSelect');
+  if (!select || !select.value) return;
+  addNurseLabTestToSelection(select.value);
+  select.value = '';
+  if (typeof select._renderCustomDropdown === 'function') {
+    select._renderCustomDropdown();
+  }
+}
+
+function addNurseLabTestToSelection(testName) {
+  const trimmed = String(testName || '').trim();
+  if (!trimmed) return;
+  if (!nurseLabSelectedTests.includes(trimmed)) {
+    nurseLabSelectedTests.push(trimmed);
+    renderNurseLabSelectedChips();
+    const errorAlert = document.getElementById('nurseLabAssignErrorAlert');
+    if (errorAlert) errorAlert.style.display = 'none';
+  }
+}
+
+function removeNurseLabTest(index) {
+  if (index >= 0 && index < nurseLabSelectedTests.length) {
+    nurseLabSelectedTests.splice(index, 1);
+    renderNurseLabSelectedChips();
+  }
+}
+
+function renderNurseLabSelectedChips() {
+  const container = document.getElementById('nurseLabSelectedChipsContainer');
+  const countEl = document.getElementById('nurseLabSelectedCount');
+  if (countEl) countEl.textContent = nurseLabSelectedTests.length;
+  if (!container) return;
+
+  if (nurseLabSelectedTests.length === 0) {
+    container.innerHTML = '<span id="nurseLabNoTestsNotice" style="font-size: 12px; color: var(--text-secondary); font-style: italic;">No lab tests selected yet. Choose one or more tests from the list above.</span>';
+    return;
+  }
+
+  container.innerHTML = nurseLabSelectedTests.map((t, idx) => `
+    <span class="badge" style="background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 12px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; font-weight: 600;">
+      <i class="fa-solid fa-flask-vial"></i> ${escapeHtml(t)}
+      <button type="button" onclick="removeNurseLabTest(${idx})" style="background: transparent; border: none; color: #0284c7; cursor: pointer; padding: 0 2px; font-size: 15px; line-height: 1; font-weight: bold;" title="Remove this test">&times;</button>
+    </span>
+  `).join('');
+}
+
+function resetNurseLabAssignmentForm() {
+  const form = document.getElementById('nurseLabAssignmentForm');
+  if (form) form.reset();
+  nurseLabSelectedPatient = null;
+  nurseLabSelectedTests = [];
+  renderNurseLabSelectedChips();
+
+  const contextCard = document.getElementById('nurseLabPatientContextCard');
+  if (contextCard) contextCard.style.display = 'none';
+
+  const searchInput = document.getElementById('nurseLabPatientSearchInput');
+  if (searchInput) searchInput.value = '';
+
+  const successAlert = document.getElementById('nurseLabAssignSuccessAlert');
+  const errorAlert = document.getElementById('nurseLabAssignErrorAlert');
+  if (successAlert) successAlert.style.display = 'none';
+  if (errorAlert) errorAlert.style.display = 'none';
+
+  refreshNurseLabAssignmentPatientSelector();
+}
+
+async function handleAssignLabTestsSubmit() {
+  const successAlert = document.getElementById('nurseLabAssignSuccessAlert');
+  const successMsg = document.getElementById('nurseLabAssignSuccessMsg');
+  const errorAlert = document.getElementById('nurseLabAssignErrorAlert');
+  const errorMsg = document.getElementById('nurseLabAssignErrorMsg');
+
+  if (successAlert) successAlert.style.display = 'none';
+  if (errorAlert) errorAlert.style.display = 'none';
+
+  // 1. Validate patient is selected
+  if (!nurseLabSelectedPatient || !nurseLabSelectedPatient.admissionId) {
+    if (errorAlert && errorMsg) {
+      errorMsg.textContent = 'Please search and select a patient before assigning lab tests.';
+      errorAlert.style.display = 'block';
+    } else {
+      alert('Please search and select a patient before assigning lab tests.');
+    }
+    document.getElementById('nurseLabAssignPatientSelect')?.focus();
+    return;
+  }
+
+  // 2. Validate at least one test selected
+  if (!nurseLabSelectedTests || nurseLabSelectedTests.length === 0) {
+    if (errorAlert && errorMsg) {
+      errorMsg.textContent = 'Please select at least one laboratory test to assign.';
+      errorAlert.style.display = 'block';
+    } else {
+      alert('Please select at least one laboratory test to assign.');
+    }
+    document.getElementById('nurseLabAvailableSelect')?.focus();
+    return;
+  }
+
+  const btn = document.getElementById('btnAssignLabTests');
+  if (btn) btn.disabled = true;
+
+  try {
+    const payload = {
+      admissionId: nurseLabSelectedPatient.admissionId,
+      patientId: nurseLabSelectedPatient.patientId,
+      investigations: [...nurseLabSelectedTests],
+      assignedBy: `${activeStaff.name || 'Duty Nurse'} (Duty Nurse)`
+    };
+
+    const res = await fetch(`${HMS_API_BASE}/api/hms/lab-assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to save lab assignments');
+
+    const count = nurseLabSelectedTests.length;
+    const patName = nurseLabSelectedPatient.fullName;
+    const patId = nurseLabSelectedPatient.patientId;
+    const admId = nurseLabSelectedPatient.admissionId;
+
+    // Show success message
+    if (successAlert && successMsg) {
+      successMsg.innerHTML = `<strong>Success!</strong> Successfully assigned ${count} laboratory test(s) to <strong>${escapeHtml(patName)}</strong> (PID: ${escapeHtml(patId)} • ADM: ${escapeHtml(admId)}). The test(s) are now queued in the Lab Report Portal.`;
+      successAlert.style.display = 'block';
+    } else {
+      alert(`Successfully assigned ${count} laboratory test(s) to ${patName} (${patId} • ${admId}).`);
+    }
+
+    // Clear selected tests
+    nurseLabSelectedTests = [];
+    renderNurseLabSelectedChips();
+
+    // Reload assignments ledger
+    await loadAndRenderNurseLabAssignments();
+  } catch (err) {
+    console.error('Failed to assign lab tests:', err);
+    if (errorAlert && errorMsg) {
+      errorMsg.textContent = `Assignment failed: ${err.message}`;
+      errorAlert.style.display = 'block';
+    } else {
+      alert(`Assignment failed: ${err.message}`);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadAndRenderNurseLabAssignments() {
+  const tbody = document.getElementById('nurseLabAssignmentsLedgerBody');
+  const badge = document.getElementById('nurseLabTotalAssignmentsBadge');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/lab-assignments`);
+    if (res.ok) {
+      const data = await res.json();
+      backendNurseLabAssignments = data.assignments || (Array.isArray(data) ? data : []);
+    }
+  } catch (err) {
+    console.warn('Failed to fetch lab assignments ledger:', err);
+  }
+
+  if (badge) {
+    badge.textContent = `${backendNurseLabAssignments.length} Assignment(s)`;
+  }
+
+  if (backendNurseLabAssignments.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary); padding: 18px;">No lab test assignments found. Assign tests using the form on the left.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = backendNurseLabAssignments.map(a => {
+    const isCompleted = a.status === 'COMPLETED';
+    const statusBadge = isCompleted
+      ? '<span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> Report Uploaded</span>'
+      : '<span class="badge badge-warning"><i class="fa-solid fa-clock"></i> Assigned</span>';
+
+    const pat = (backendActiveAdmissions || []).find(p => p.admissionId === a.admissionId || p.patientId === a.patientId) ||
+                (backendAdmissions || []).find(p => p.admissionId === a.admissionId || p.patientId === a.patientId);
+    const pName = pat ? pat.fullName : (a.patientId || 'Patient');
+    const pId = a.patientId || (pat ? pat.patientId : '-');
+    const admId = a.admissionId || '-';
+    const assignedTime = a.createdAt ? formatDateForDisplay(a.createdAt) : 'Recently';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(pName)}</strong><br><span style="font-size: 11px; color: var(--text-secondary); font-family: monospace;">PID: ${escapeHtml(pId)} &bull; ADM: ${escapeHtml(admId)}</span></td>
+        <td><strong>${escapeHtml(a.investigationName)}</strong></td>
+        <td><span class="badge" style="background: #f1f5f9; color: var(--navy-dark);">${escapeHtml(a.category || 'General')}</span></td>
+        <td>${statusBadge}</td>
+        <td><span style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(assignedTime)}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function renderScheduleRecords() {
   const tbody = document.getElementById('scheduleTableBody');
   if (tbody) {
@@ -2439,7 +2813,7 @@ function renderScheduleRecords() {
           <td><strong>${escapeHtml(pName)}</strong><br><span style="font-size: 11px; color: var(--text-secondary); font-family: monospace;">PID: ${escapeHtml(pId)} &bull; ADM: ${escapeHtml(admId)}</span></td>
           <td><strong>${escapeHtml(schedule.doctor || schedule.doctorName)}</strong><br><span style="font-size: 11px; color: var(--text-secondary);">${escapeHtml(schedule.department || 'General')}</span></td>
           <td>${escapeHtml(formattedDate)}<br><span style="font-size: 11px; color: var(--text-secondary);">${escapeHtml(formattedTime)}</span></td>
-          <td><strong>${escapeHtml(schedule.appointmentType)}</strong>${schedule.room ? `<br><span style="font-size: 11px; color: var(--text-secondary);"><i class="fa-solid fa-door-open"></i> ${escapeHtml(schedule.room)}</span>` : ''}</td>
+          <td><strong>${escapeHtml(schedule.appointmentType)}</strong>${schedule.room ? `<br><span style="font-size: 11px; color: var(--text-secondary);"><i class="fa-solid fa-door-open"></i> ${escapeHtml(schedule.room)}</span>` : ''}${schedule.assignedLabReports ? `<div style="margin-top: 4px;"><span class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 600;"><i class="fa-solid fa-flask-vial"></i> Lab: ${escapeHtml(schedule.assignedLabReports)}</span></div>` : ''}</td>
           <td><span class="badge ${statusClass}">${escapeHtml(status)}</span></td>
           <td>
             <button type="button" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="editScheduleRecord('${escapeHtml(recId)}')"><i class="fa-solid fa-pen-to-square"></i> Edit</button>
@@ -2718,6 +3092,16 @@ function resetScheduleForm() {
   if (deptDisplay) deptDisplay.textContent = '-';
   if (roomDisplay) roomDisplay.textContent = '-';
 
+  dutyNurseSelectedInvestigations = [];
+  renderDutyNurseLabTags();
+  const labSel = document.getElementById('scheduleLabReportSelect');
+  if (labSel) {
+    labSel.value = '';
+    if (typeof labSel._renderCustomDropdown === 'function') {
+      labSel._renderCustomDropdown();
+    }
+  }
+
   const submitButton = document.getElementById('scheduleSubmitButton');
   if (submitButton) {
     submitButton.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Schedule Visit';
@@ -2816,6 +3200,9 @@ async function handleSaveSchedule() {
 
     resetScheduleForm();
     await loadBackendSchedules();
+    if (typeof loadBackendLabAssignments === 'function') {
+      await loadBackendLabAssignments();
+    }
     const actionLabel = isEdit ? 'updated' : 'scheduled';
     alert(`Doctor visit successfully ${actionLabel} for ${admission ? admission.fullName : admissionId} with ${doctor} (Status: ${finalStatus}).`);
   } catch (error) {
@@ -3276,6 +3663,7 @@ function selectLabPatient(admissionId, patientId, fullName) {
   if (textEl) textEl.textContent = `${patientId} - ${fullName} (Admission: ${admissionId})`;
   if (cardEl) cardEl.style.display = 'block';
   if (resultsContainer) resultsContainer.style.display = 'none';
+  updateLabAssignedInvestigationsDropdown(admissionId);
 }
 
 // Close combobox when clicking outside
@@ -3381,11 +3769,12 @@ async function handleAddLabReport() {
         body: JSON.stringify({ filename: selectedLabReportFile.name, fileData: base64Data })
       });
       const uploadResult = await uploadRes.json();
-      if (!uploadRes.ok || !uploadResult.url) {
-        throw new Error(uploadResult.error || 'Failed to upload report file');
+      const returnedUrl = uploadResult?.url || uploadResult?.fileUrl;
+      if (!uploadRes.ok || !returnedUrl) {
+        throw new Error(uploadResult?.error || 'Failed to upload report file');
       }
-      fileUrl = uploadResult.url;
-      fileName = uploadResult.filename || selectedLabReportFile.name;
+      fileUrl = returnedUrl;
+      fileName = uploadResult.filename || uploadResult.fileName || selectedLabReportFile.name;
     }
 
     const report = {
@@ -3415,9 +3804,8 @@ async function handleAddLabReport() {
     if (!response.ok) throw new Error(admissionApiError(saved, response.status));
 
     removeLabReportFile();
-    nameEl.value = '';
-    if (typeof nameEl._renderCustomDropdown === 'function') nameEl._renderCustomDropdown();
     await loadBackendLabReports();
+    await updateLabAssignedInvestigationsDropdown(admissionId);
     alert(`Diagnostic lab report "${title}" uploaded and published for ${admission.fullName} (${admission.patientId}). Reference: ${reportId}`);
   } catch (error) {
     console.error('Failed to save lab report:', error);
@@ -3450,6 +3838,119 @@ function renderLabReports() {
         <td><span class="badge ${badgeClass}">${escapeHtml(status)}</span></td>
       </tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding: 16px;">No diagnostic reports uploaded yet.</td></tr>';
+}
+
+async function loadBackendLabAssignments() {
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/lab-assignments`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        backendLabAssignments = data;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load lab assignments:', err);
+  }
+}
+
+async function updateLabAssignedInvestigationsDropdown(admissionId) {
+  const labNameSelect = document.getElementById('labName');
+  const helpText = document.getElementById('labInvestigationHelpText');
+  if (!labNameSelect) return;
+
+  if (!admissionId) {
+    labNameSelect.innerHTML = '<option value="" disabled selected>Select a patient to view assigned investigations</option>';
+    labNameSelect.disabled = true;
+    if (helpText) helpText.innerHTML = 'Only investigations assigned to the selected active patient appear here.';
+    if (typeof labNameSelect._renderCustomDropdown === 'function') labNameSelect._renderCustomDropdown();
+    return;
+  }
+
+  labNameSelect.innerHTML = '<option value="" disabled selected>Loading assigned investigations...</option>';
+  labNameSelect.disabled = true;
+  if (typeof labNameSelect._renderCustomDropdown === 'function') labNameSelect._renderCustomDropdown();
+
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/v1/admissions/${encodeURIComponent(admissionId)}/lab-assignments`);
+    let assignments = [];
+    if (res.ok) {
+      const data = await res.json();
+      assignments = data.assignments || [];
+    }
+
+    // Filter to only pending ASSIGNED tests
+    const pendingAssignments = assignments.filter(a => a.status === 'ASSIGNED');
+
+    const catSelect = document.getElementById('labCategory');
+    if (catSelect) {
+      catSelect.value = '';
+      catSelect.disabled = true;
+      if (typeof catSelect._renderCustomDropdown === 'function') catSelect._renderCustomDropdown();
+    }
+
+    labNameSelect.innerHTML = '';
+    if (pendingAssignments.length === 0) {
+      labNameSelect.innerHTML = '<option value="" disabled selected>No pending assigned investigations for this patient</option>';
+      labNameSelect.disabled = true;
+      if (helpText) {
+        helpText.innerHTML = '<span style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> No pending laboratory investigations assigned. Duty Nurse can assign an investigation during doctor visit scheduling.</span>';
+      }
+    } else {
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.disabled = true;
+      defaultOpt.selected = true;
+      defaultOpt.textContent = `-- Select Assigned Investigation (${pendingAssignments.length} pending) --`;
+      labNameSelect.appendChild(defaultOpt);
+
+      pendingAssignments.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.investigationName;
+        opt.textContent = `${a.investigationName} (${a.category || 'General'})`;
+        opt.dataset.category = a.category || 'Pathology';
+        labNameSelect.appendChild(opt);
+      });
+
+      labNameSelect.disabled = false;
+      if (helpText) {
+        helpText.innerHTML = `<span style="color: #0369a1;"><i class="fa-solid fa-circle-check"></i> ${pendingAssignments.length} assigned investigation(s) pending for this admission.</span>`;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load assigned investigations:', err);
+    labNameSelect.innerHTML = '<option value="" disabled selected>Failed to load assigned investigations</option>';
+    labNameSelect.disabled = true;
+  }
+
+  if (typeof labNameSelect._renderCustomDropdown === 'function') {
+    labNameSelect._renderCustomDropdown();
+  }
+}
+
+function handleLabInvestigationSelectChange(value) {
+  const labNameSelect = document.getElementById('labName');
+  const catSelect = document.getElementById('labCategory');
+  if (!labNameSelect || !catSelect || !value) return;
+
+  const selectedOpt = Array.from(labNameSelect.options).find(o => o.value === value);
+  if (selectedOpt && selectedOpt.dataset.category) {
+    const cat = selectedOpt.dataset.category;
+    let matched = Array.from(catSelect.options).find(o => o.value.toLowerCase() === cat.toLowerCase());
+    if (matched) {
+      catSelect.value = matched.value;
+    } else {
+      const newOpt = document.createElement('option');
+      newOpt.value = cat;
+      newOpt.textContent = cat;
+      catSelect.appendChild(newOpt);
+      catSelect.value = cat;
+    }
+    catSelect.disabled = true;
+    if (typeof catSelect._renderCustomDropdown === 'function') {
+      catSelect._renderCustomDropdown();
+    }
+  }
 }
 
 // ====================================================================
