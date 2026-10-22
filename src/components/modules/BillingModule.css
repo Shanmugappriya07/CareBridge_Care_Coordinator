@@ -1,0 +1,544 @@
+/* ===============================================================
+   BillingModule.css - Real-World Hospital Administration Styles
+   Theme: Dark header (#1e293b), Clean Light-gray background (#f8fafc),
+   Navy Blue accents (#0284c7), and Success Green highlights (#10b981).
+   =============================================================== */
+
+:root {
+  --billing-navy-dark: #0f172a;
+  --billing-navy-header: #1e293b;
+  --billing-accent: #0284c7;
+  --billing-accent-light: #e0f2fe;
+  --billing-success: #10b981;
+  --billing-success-light: #ecfdf5;
+  --billing-warning: #f59e0b;
+  --billing-danger: #ef4444;
+  --billing-bg: #f8fafc;
+  --billing-surface: #ffffff;
+  --billing-border: #cbd5e1;
+  --billing-text: #0f172a;
+  --billing-text-muted: #64748b;
+  --billing-radius: 10px;
+  --billing-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.billing-module-container {
+  background-color: var(--billing-bg);
+  color: var(--billing-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* Module Header */
+.billing-header {
+  background: var(--billing-navy-header);
+  color: #ffffff;
+  border-radius: var(--billing-radius);
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.billing-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.billing-header-title i {
+  color: #38bdf8;
+}
+
+.billing-header-badge {
+  background: rgba(2, 132, 199, 0.25);
+  border: 1px solid #0284c7;
+  color: #e0f2fe;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 3-Column Balanced Layout */
+.billing-grid-3col {
+  display: grid;
+  grid-template-columns: 340px 1.4fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1300px) {
+  .billing-grid-3col {
+    grid-template-columns: 320px 1fr 320px;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .billing-grid-3col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reusable Cards */
+.billing-card {
+  background: var(--billing-surface);
+  border: 1px solid var(--billing-border);
+  border-radius: var(--billing-radius);
+  padding: 18px;
+  margin-bottom: 20px;
+  box-shadow: var(--billing-shadow);
+}
+
+.billing-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.billing-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--billing-navy-dark);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.billing-card-title i {
+  color: var(--billing-accent);
+}
+
+/* Patient Context Chip */
+.patient-chip {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+
+.patient-chip strong {
+  color: var(--billing-navy-dark);
+}
+
+/* Form Controls */
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--billing-text-muted);
+  margin-bottom: 4px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--billing-border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
+  color: var(--billing-text);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--billing-accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+/* Available Room Logs */
+.room-logs-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.room-logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin: 8px 0;
+}
+
+.room-logs-table th {
+  background: #e2e8f0;
+  color: #334155;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 700;
+}
+
+.room-logs-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.room-charge-total {
+  background: var(--billing-accent-light);
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  color: #0369a1;
+  font-size: 13px;
+}
+
+.room-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.room-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--billing-accent);
+  cursor: pointer;
+}
+
+/* Visual Pipeline Status Bar */
+.tpa-pipeline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin: 16px 0 20px 0;
+}
+
+.tpa-pipeline::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 20px;
+  right: 20px;
+  height: 3px;
+  background: #e2e8f0;
+  z-index: 1;
+}
+
+.tpa-pipeline-step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex: 1;
+}
+
+.tpa-step-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: #ffffff;
+  border: 2px solid #cbd5e1;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  transition: all 0.2s ease;
+}
+
+.tpa-step-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--billing-text-muted);
+}
+
+.tpa-pipeline-step.completed .tpa-step-icon {
+  background: var(--billing-success);
+  border-color: var(--billing-success);
+  color: #ffffff;
+}
+
+.tpa-pipeline-step.active .tpa-step-icon {
+  background: var(--billing-accent);
+  border-color: var(--billing-accent);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25);
+  transform: scale(1.1);
+}
+.tpa-pipeline-step.active .tpa-step-label {
+  color: var(--billing-accent);
+  font-weight: 700;
+}
+
+/* Draft Invoice Table */
+.draft-table-wrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 12px;
+}
+
+.draft-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.draft-table th {
+  background: var(--billing-navy-header);
+  color: #ffffff;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.draft-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.draft-table tr:hover {
+  background: #f8fafc;
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-stay { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+.badge-service { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }
+.badge-lab { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.badge-pharmacy { background: #d1fae5; color: #047857; border: 1px solid #a7f3d0; }
+
+.draft-subtotals {
+  display: flex;
+  justify-content: flex-end;
+  gap: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 18px;
+}
+
+.draft-subtotal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.sub-label {
+  font-size: 10.5px;
+  color: var(--billing-text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.sub-amount {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--billing-navy-dark);
+}
+
+.sub-amount.payable {
+  font-size: 18px;
+  color: var(--billing-accent);
+}
+
+/* Payment Reconciliation Ledger */
+.payment-collect-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 16px;
+}
+
+.payment-mode-group {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.payment-mode-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid var(--billing-border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.payment-mode-item input[type="radio"]:checked + span {
+  color: var(--billing-accent);
+}
+
+/* Sticky Overall Bill Summary */
+.sticky-summary {
+  position: sticky;
+  top: 16px;
+}
+
+.summary-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+
+.summary-metric.deduction .metric-val {
+  color: var(--billing-success);
+}
+
+.metric-lbl {
+  color: var(--billing-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-val {
+  font-weight: 700;
+  color: var(--billing-navy-dark);
+}
+
+.net-balance-banner {
+  border-radius: 8px;
+  padding: 14px;
+  margin: 16px 0;
+  text-align: center;
+  border: 2px solid #cbd5e1;
+}
+
+.net-balance-banner.clear {
+  background: #ecfdf5;
+  border-color: #10b981;
+}
+
+.net-balance-banner.due {
+  background: #fff1f2;
+  border-color: #f43f5e;
+}
+
+.net-banner-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--billing-text-muted);
+  margin-bottom: 4px;
+}
+
+.net-banner-val {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.net-balance-banner.clear .net-banner-val { color: #047857; }
+.net-balance-banner.due .net-banner-val { color: #be123c; }
+
+/* Dynamic Discharge Checklist */
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  margin-bottom: 8px;
+}
+
+.checklist-item.passed {
+  background: #f0fdf4;
+  border-color: #d1fae5;
+}
+
+.checklist-item.failed {
+  background: #fef2f2;
+  border-color: #fee2e2;
+}
+
+.checklist-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+}
+
+.checklist-item.passed .checklist-dot { background: var(--billing-success); }
+.checklist-item.failed .checklist-dot { background: var(--billing-danger); }
+
+/* Quick Action Buttons */
+.quick-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  margin-bottom: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.quick-action-btn:hover {
+  opacity: 0.9;
+}
+
+.btn-print { background: #0f172a; color: #ffffff; }
+.btn-final { background: var(--billing-accent); color: #ffffff; }
+.btn-pay { background: #ffffff; color: var(--billing-accent); border: 1.5px solid var(--billing-accent); }
+.btn-discharge { background: var(--billing-success); color: #ffffff; }
+.btn-tpa { background: #7c3aed; color: #ffffff; }

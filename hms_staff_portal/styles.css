@@ -608,3 +608,629 @@ textarea.form-control {
   margin: 9px 0;
 }
 
+/* ===============================================================
+   MODULE 6: BILLING & INSURANCE DESK (REAL-WORLD HMS STANDARDS)
+   =============================================================== */
+
+/* 3-Column Balanced Layout */
+.billing-layout-grid {
+  display: grid;
+  grid-template-columns: 340px 1.4fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1300px) {
+  .billing-layout-grid {
+    grid-template-columns: 320px 1fr 320px;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .billing-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Patient Context Chip */
+.billing-patient-chip {
+  background: var(--surface-variant);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.billing-patient-chip strong {
+  color: var(--navy-dark);
+}
+
+/* Available Room Logs Card */
+.room-logs-container {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin: 14px 0;
+}
+
+.room-logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin-top: 8px;
+}
+
+.room-logs-table th {
+  background: #e2e8f0;
+  color: #334155;
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 700;
+  font-size: 11px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.room-logs-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.room-logs-table tr:hover {
+  background: #f1f5f9;
+}
+
+.room-total-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0369a1;
+}
+
+.room-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+  user-select: none;
+}
+
+.room-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cyan-primary);
+  cursor: pointer;
+}
+
+/* Cashless Insurance & TPA Pipeline */
+.tpa-pipeline-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-top: 16px;
+  box-shadow: var(--shadow);
+}
+
+.tpa-pipeline-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin: 16px 0 20px 0;
+  padding: 0 4px;
+}
+
+.tpa-pipeline-steps::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 20px;
+  right: 20px;
+  height: 3px;
+  background: #e2e8f0;
+  z-index: 1;
+}
+
+.tpa-step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  flex: 1;
+}
+
+.tpa-step-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: #ffffff;
+  border: 2px solid #cbd5e1;
+  color: #94a3b8;
+  transition: all 0.25s ease;
+  margin-bottom: 6px;
+}
+
+.tpa-step-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.tpa-step.completed .tpa-step-icon {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+.tpa-step.completed .tpa-step-label {
+  color: #047857;
+}
+
+.tpa-step.active .tpa-step-icon {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.2);
+  transform: scale(1.1);
+}
+.tpa-step.active .tpa-step-label {
+  color: #0284c7;
+  font-weight: 700;
+}
+
+.tpa-step.pending .tpa-step-icon {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+}
+
+/* Aggregated Draft Invoice Table */
+.draft-table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+.draft-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.draft-table th {
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.draft-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.draft-table tr:hover {
+  background: #f8fafc;
+}
+
+.draft-type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-type-stay {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border: 1px solid #e9d5ff;
+}
+.badge-type-service {
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+}
+.badge-type-lab {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.badge-type-pharmacy {
+  background: #d1fae5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.draft-subtotal-panel {
+  display: flex;
+  justify-content: flex-end;
+  gap: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  margin-top: 10px;
+}
+
+.draft-subtotal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.draft-subtotal-item .sub-lbl {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.draft-subtotal-item .sub-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy-dark);
+}
+
+.draft-subtotal-item.total-payable .sub-val {
+  font-size: 18px;
+  color: var(--cyan-primary);
+}
+
+/* Collect Payment Widget */
+.payment-collect-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.payment-mode-radios {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.payment-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.payment-mode-label:hover {
+  background: #f1f5f9;
+}
+
+.payment-mode-label input[type="radio"]:checked + span {
+  color: var(--cyan-primary);
+}
+
+/* Overall Bill Summary Sticky Card */
+.sticky-bill-summary {
+  position: sticky;
+  top: 16px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+
+.metric-row .metric-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-row .metric-value {
+  font-weight: 700;
+  color: var(--navy-dark);
+}
+
+.metric-row.deduction .metric-value {
+  color: #059669;
+}
+
+.net-balance-banner {
+  background: #f1f5f9;
+  border: 2px solid #cbd5e1;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin: 16px 0;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.net-balance-banner.clear {
+  background: #ecfdf5;
+  border-color: #10b981;
+}
+
+.net-balance-banner.due {
+  background: #fff1f2;
+  border-color: #f43f5e;
+}
+
+.net-balance-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.net-balance-amount {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.net-balance-banner.clear .net-balance-amount {
+  color: #047857;
+}
+
+.net-balance-banner.due .net-balance-amount {
+  color: #be123c;
+}
+
+/* Discharge Checklist */
+.checklist-card {
+  margin-top: 16px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+}
+
+.checklist-item.passed {
+  border-color: #d1fae5;
+  background: #f0fdf4;
+}
+
+.checklist-item.failed {
+  border-color: #fee2e2;
+  background: #fef2f2;
+}
+
+.checklist-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.checklist-item.passed .checklist-icon {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.checklist-item.failed .checklist-icon {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.checklist-text {
+  flex: 1;
+  font-weight: 600;
+  color: #334155;
+}
+
+/* Quick Actions Panel */
+.quick-actions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  width: 100%;
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-quick-print {
+  background: #0f172a;
+  color: #ffffff;
+}
+.btn-quick-print:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+.btn-quick-final {
+  background: #0284c7;
+  color: #ffffff;
+}
+.btn-quick-final:hover:not(:disabled) {
+  background: #0369a1;
+}
+
+.btn-quick-pay {
+  background: #f8fafc;
+  color: #0369a1;
+  border: 1.5px solid #0284c7;
+}
+.btn-quick-pay:hover:not(:disabled) {
+  background: #e0f2fe;
+}
+
+.btn-quick-discharge {
+  background: #10b981;
+  color: #ffffff;
+}
+.btn-quick-discharge:hover:not(:disabled) {
+  background: #059669;
+}
+
+.btn-quick-tpa {
+  background: #7c3aed;
+  color: #ffffff;
+}
+.btn-quick-tpa:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+/* Modal Windows for Invoice and Receipt */
+.hms-custom-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.hms-custom-modal.active {
+  display: flex;
+}
+
+.hms-custom-modal-card {
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  max-width: 780px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  animation: modalScaleIn 0.2s ease-out;
+}
+
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.hms-modal-header {
+  background: var(--navy-header);
+  color: #ffffff;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hms-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.hms-modal-footer {
+  padding: 14px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes ledgerRowFlash {
+  0% { background-color: rgba(16, 185, 129, 0.35); transform: scale(1.005); }
+  50% { background-color: rgba(16, 185, 129, 0.15); }
+  100% { background-color: transparent; transform: scale(1); }
+}
+
+.row-highlight-new {
+  animation: ledgerRowFlash 2.5s ease-out;
+  border-left: 3px solid var(--emerald-success);
+}
+
+
+

@@ -58,43 +58,27 @@ on the same Wi-Fi network.
 
 ```bash
 cd hms_staff_portal
-python -m http.server 8086
-```
-Open `http://localhost:8086`. If the backend isn't at `localhost:8080`,
-edit the `HMS_API_BASE` constant near the top of `hms_app.js` first.
-
-## 5. Run the CareBridge web preview (quick zero-Flutter demo)
-
-```bash
-cd carebridge_web_preview
 python -m http.server 8085
 ```
-Open `http://localhost:8085`. Same note: edit `HMS_API_BASE` at the top
-of `app.js` if your backend isn't on `localhost`.
+Open `http://localhost:8085`. If the backend isn't at `localhost:8080`,
+edit the `HMS_API_BASE` constant near the top of `hms_app.js` first.
 
-## 6. Try the live sync
+## 5. Run the CareBridge Mobile Application (`carebridge_app`)
 
-1. In the HMS portal, log in as "Doctor", add a ward-round note.
-2. Open the CareBridge web preview (or refresh it) — within ~4 seconds
-   the new note appears in its Timeline tab, pulled straight from MySQL.
-3. In CareBridge, mark a prescription as collected or pay the bill.
-4. Watch the HMS Pharmacy/Billing tabs update the same way.
-5. Open MySQL Workbench/phpMyAdmin/DBeaver, connect to `carebridge_db`,
-   and browse the tables directly — the "Database Inspector" tab in the
-   HMS portal shows the same live data in-app.
+The CareBridge mobile application is built with Flutter (Material Design 3).
+
+```bash
+cd carebridge_app
+flutter pub get
+flutter run
+```
+You can select an Android Emulator, iOS Simulator, or connected physical device.
+If running on an Android emulator, `http://10.0.2.2:8080/api/v1` automatically routes to your host machine's backend on port 8080. If running on a physical phone, update `apiBaseUrl` in `lib/core/constants/app_constants.dart` with your PC's LAN IP address.
 
 ## Notes on the current state
 
-- **Web ↔ Web sync is fully wired and tested end-to-end** against a real
-  MySQL database (`hms_staff_portal` and `carebridge_web_preview`), with a
-  4-second poll so each side picks up the other's changes automatically.
-- **The Flutter mobile app (`carebridge_app`) is not yet wired to this
-  backend** — its screens still show mock/hardcoded data. It has the
-  `http` package ready in `pubspec.yaml`, but no API service layer yet.
-  That's the next piece to build: an `ApiService` hitting the same
-  `GET /api/hms/data` / `POST /api/hms/sync` / `PUT /api/hms/prescriptions/:id/collect`
-  / `POST /api/hms/payments` endpoints documented below, wired into the
-  Dashboard, Timeline, Lab Reports, Prescriptions, and Billing screens.
+- **Backend + HMS Portal**: Live and synced via REST endpoints at `http://localhost:8080` and `http://localhost:8085`.
+- **Flutter Mobile App (`carebridge_app`)**: The mobile codebase is under `carebridge_app/lib/` with dedicated feature modules: `admissions`, `billing`, `treatment_timeline`, `lab_reports`, `prescriptions`, `hospital_navigation`, `insurance`, and `family_access`.
 - The old Spring Boot backend attempt has been moved to
   `carebridge_backend/_unused_spring_boot_prototype/` — it was never more
   than 3 stub controllers returning hardcoded data, so it isn't part of

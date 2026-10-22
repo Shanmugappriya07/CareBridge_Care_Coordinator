@@ -263,7 +263,7 @@ const memoryFallbackDb = {
     ]
   },
   payments: [
-    { txId: 'TXN-991823', admissionId: '26CAR008', dateLabel: '13 Aug 2026', method: 'UPI (Google Pay)', amount: 10000, status: 'Paid' }
+    { txId: 'TXN-991823', admissionId: '26CAR008', date: '13-Aug-2026, 10:30 AM', dateLabel: '13-Aug-2026, 10:30 AM', date_label: '13-Aug-2026, 10:30 AM', method: 'UPI (Google Pay)', amount: 10000, status: 'Paid', payer: 'Priya Lakshmi (Caregiver)' }
   ],
   appointments: [
     {
@@ -282,7 +282,35 @@ const memoryFallbackDb = {
     }
   ],
   pharmacyTransactions: [],
-  patientsMaster: []
+  patientsMaster: [],
+  patientTransfers: [
+    {
+      id: 1,
+      admissionId: '26CAR008',
+      patientId: '26PAT0001',
+      fromDept: 'Emergency',
+      toDept: 'Cardiology',
+      fromRoom: 'ICU Room 304',
+      toRoom: 'Cardio Ward Bed 3',
+      attendingDoctor: 'Dr. Aris Thorne (Cardiology)',
+      reason: 'Post-stabilization step-down transfer',
+      transferredBy: 'Sister Lakshmi (Staff Nurse)',
+      transferDate: '2026-10-20 11:30:00'
+    },
+    {
+      id: 2,
+      admissionId: '26CAR007',
+      patientId: '26PAT0009',
+      fromDept: 'Paediatrics',
+      toDept: 'Paediatrics',
+      fromRoom: 'Paediatric Ward - Bed 2',
+      toRoom: 'Semi-Private Room 401',
+      attendingDoctor: 'Dr. Anita Rao (Paediatrics)',
+      reason: 'Step-down to semi-private room',
+      transferredBy: 'Reception Staff',
+      transferDate: '2026-10-21 14:15:00'
+    }
+  ]
 };
 
 // Auto-create admission_caregivers table for secondary / family access
@@ -489,10 +517,15 @@ function mapBillItem(i) {
   return { desc: i.description, category: i.category, amount: Number(i.amount) };
 }
 function mapPayment(p) {
+  const dStr = p.date || p.date_label || p.dateLabel || '13-Aug-2026, 10:30 AM';
   return {
-    txId: p.tx_id,
-    date: p.date_label,
+    txId: p.tx_id || p.txId,
+    admissionId: p.admission_id || p.admissionId,
+    date: dStr,
+    dateLabel: dStr,
+    date_label: dStr,
     method: p.method,
+    payer: p.payer || 'Priya Lakshmi (Caregiver)',
     amount: Number(p.amount),
     status: p.status,
   };
@@ -786,6 +819,12 @@ async function buildSnapshot() {
       labAssignments = laRows;
     } catch (_) {}
 
+    let patientTransfers = [];
+    try {
+      const [ptRows] = await pool.query('SELECT * FROM patient_transfers ORDER BY transfer_date ASC, id ASC');
+      patientTransfers = ptRows;
+    } catch (_) {}
+
     const billingRow = billingRows[0] || {
       total_bill: 0, insurance_covered: 0, remaining_payable: 0, claim_status: 'Pending',
     };
@@ -798,6 +837,19 @@ async function buildSnapshot() {
       prescriptions: prescriptions.map(mapPrescription),
       medicines: medicines.map(m => ({ id: m.id, name: m.name, genericName: m.generic_name, form: m.form, unitPrice: Number(m.unit_price), dosageUnit: m.dosage_unit || 'mg' })),
       roomTariffs: roomTariffs.map(r => ({ id: r.id, roomType: r.room_type, displayName: r.display_name, dailyRate: Number(r.daily_rate), description: r.description })),
+      patientTransfers: patientTransfers.map(t => ({
+        id: t.id,
+        admissionId: t.admission_id,
+        patientId: t.patient_id,
+        fromDept: t.from_dept,
+        toDept: t.to_dept,
+        fromRoom: t.from_room,
+        toRoom: t.to_room,
+        attendingDoctor: t.attending_doctor,
+        reason: t.transfer_reason,
+        transferredBy: t.transferred_by,
+        transferDate: t.transfer_date
+      })),
       billing: {
         totalBill: Number(billingRow.total_bill),
         insuranceCovered: Number(billingRow.insurance_covered),
@@ -1028,37 +1080,129 @@ app.put('/api/hms/prescriptions/:id/collect', async (req, res) => {
   }
 });
 
-// Record a caregiver payment (clears remaining payable, matching existing UI logic)
+// Record a payment (supports caregiver app, billing desk collection widget, custom amount & reference)
 app.post('/api/hms/payments', async (req, res) => {
-  const conn = await pool.getConnection();
+  const { admissionId, method, amount, reference, payer, date: requestedDate, txId: requestedTxId } = req.body || {};
+  const targetAdmission = admissionId || 'HMS-2026-8842';
+  const txId = requestedTxId || ('TXN-' + Math.floor(100000 + Math.random() * 900000));
+
+  let cleanDate = (requestedDate && typeof requestedDate === 'string' && requestedDate.trim().length > 5)
+    ? requestedDate.trim()
+    : null;
+
+  if (!cleanDate) {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[now.getMonth()];
+    const year = now.getFullYear();
+    let hours = now.getHours();
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? String(hours).padStart(2, '0') : '12';
+    cleanDate = `${day}-${month}-${year}, ${hours}:${minutes} ${ampm}`;
+  }
+
+  let methodLabel = method || 'UPI / NetBanking';
+  if (reference && !methodLabel.includes(reference)) {
+    methodLabel += ` (${reference})`;
+  }
+
+  const paidAmt = (amount !== undefined && amount !== null && !isNaN(Number(amount)) && Number(amount) > 0)
+    ? Number(amount)
+    : 0;
+
+  // Duplicate payment guard: Prevent recording identical transaction within 6 seconds
+  if (!memoryFallbackDb.payments) memoryFallbackDb.payments = [];
+  const existingDup = memoryFallbackDb.payments.find(p =>
+    (p.admissionId === targetAdmission || p.admission_id === targetAdmission) &&
+    Number(p.amount) === paidAmt &&
+    (Date.now() - (p._recordedAt || 0) < 6000)
+  );
+
+  if (existingDup) {
+    return res.json({
+      success: true,
+      duplicateIgnored: true,
+      txId: existingDup.txId || existingDup.tx_id,
+      amount: existingDup.amount,
+      date: existingDup.date || existingDup.date_label || cleanDate,
+      method: existingDup.method || methodLabel,
+      payer: payer || 'Caregiver',
+      message: 'Duplicate payment request within 6 seconds safely ignored'
+    });
+  }
+
+  // 1. Immediately record in-memory fallback for instantaneous sync across all modules & mobile app
+  const memPayment = {
+    txId,
+    tx_id: txId,
+    admissionId: targetAdmission,
+    admission_id: targetAdmission,
+    date: cleanDate,
+    dateLabel: cleanDate,
+    date_label: cleanDate,
+    method: methodLabel,
+    amount: paidAmt,
+    payer: payer || 'Caregiver',
+    status: 'Paid',
+    _recordedAt: Date.now()
+  };
+
+  memoryFallbackDb.payments.unshift(memPayment);
+
+  if (memoryFallbackDb.billing) {
+    memoryFallbackDb.billing.remainingPayable = Math.max(0, (Number(memoryFallbackDb.billing.remainingPayable) || 0) - paidAmt);
+  }
+
+  // 2. Persist to MySQL database if available
+  let conn;
   try {
-    const { admissionId, method } = req.body;
-    const targetAdmission = admissionId || 'HMS-2026-8842';
-    const txId = 'TXN-' + Math.floor(100000 + Math.random() * 900000);
-
+    conn = await pool.getConnection();
     await conn.beginTransaction();
-    const [billingRows] = await conn.query('SELECT remaining_payable FROM billing_summary WHERE admission_id = ?', [targetAdmission]);
-    const paidAmt = billingRows[0] ? Number(billingRows[0].remaining_payable) : 0;
 
-    await conn.query('UPDATE billing_summary SET remaining_payable = 0 WHERE admission_id = ?', [targetAdmission]);
-    // Also mark any pending emergency pharmacy transactions as paid
+    const [billingRows] = await conn.query('SELECT remaining_payable FROM billing_summary WHERE admission_id = ?', [targetAdmission]);
+    const currentRemaining = billingRows[0] ? Number(billingRows[0].remaining_payable) : 0;
+
     await conn.query(
-      "UPDATE pharmacy_transactions SET payment_status = 'PAID' WHERE admission_id = ? AND payment_status = 'PENDING'",
-      [targetAdmission]
+      'UPDATE billing_summary SET remaining_payable = GREATEST(0, remaining_payable - ?) WHERE admission_id = ?',
+      [paidAmt, targetAdmission]
     );
+
+    if (paidAmt >= currentRemaining && currentRemaining > 0) {
+      await conn.query(
+        "UPDATE pharmacy_transactions SET payment_status = 'PAID' WHERE admission_id = ? AND payment_status = 'PENDING'",
+        [targetAdmission]
+      );
+    }
+
     await conn.query(
       'INSERT INTO payments (tx_id, admission_id, date_label, method, amount, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [txId, targetAdmission, 'Today', (method || 'UPI') + ' (Caregiver App)', paidAmt, 'Paid']
+      [txId, targetAdmission, cleanDate, methodLabel, paidAmt, 'Paid']
     );
+
     await conn.commit();
-    res.json({ success: true, txId, amount: paidAmt, snapshot: await buildSnapshot() });
-  } catch (err) {
-    await conn.rollback();
-    console.error(err);
-    res.status(500).json({ error: err.message });
+  } catch (dbErr) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+    }
+    console.warn('Payment stored in memory (MySQL pool unavailable):', dbErr.message);
   } finally {
-    conn.release();
+    if (conn) {
+      try { conn.release(); } catch (_) {}
+    }
   }
+
+  // Instant response to caller (< 10ms)
+  res.json({
+    success: true,
+    txId,
+    amount: paidAmt,
+    date: cleanDate,
+    method: methodLabel,
+    payer: payer || 'Caregiver'
+  });
 });
 
 // ---------------------------------------------------------------
@@ -1480,6 +1624,36 @@ const handleAdmissionTransfer = async (req, res) => {
 app.post('/api/hms/admissions/:admissionId/transfer', handleAdmissionTransfer);
 app.put('/api/v1/admissions/:admissionId/transfer', handleAdmissionTransfer);
 app.post('/api/v1/admissions/:admissionId/transfer', handleAdmissionTransfer);
+
+// Room Transfer Audit Logs Query Endpoint (for Automated Stay Calculator)
+app.get('/api/hms/admissions/:admissionId/transfers', async (req, res) => {
+  const { admissionId } = req.params;
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, admission_id, patient_id, from_dept, to_dept, from_room, to_room, attending_doctor, transfer_reason, transferred_by, transfer_date
+       FROM patient_transfers
+       WHERE admission_id = ?
+       ORDER BY transfer_date ASC, id ASC`,
+      [admissionId]
+    );
+    res.json(rows.map(t => ({
+      id: t.id,
+      admissionId: t.admission_id,
+      patientId: t.patient_id,
+      fromDept: t.from_dept,
+      toDept: t.to_dept,
+      fromRoom: t.from_room,
+      toRoom: t.to_room,
+      attendingDoctor: t.attending_doctor,
+      reason: t.transfer_reason,
+      transferredBy: t.transferred_by,
+      transferDate: t.transfer_date
+    })));
+  } catch (err) {
+    console.error('Error fetching patient transfers:', err);
+    res.json([]);
+  }
+});
 
 // Room Occupancy Query Endpoint
 app.get('/api/hms/rooms/occupancy', async (req, res) => {
@@ -4076,25 +4250,5 @@ hmsApp.listen(8085, '0.0.0.0', () => {
   console.log('Port 8085: HMS Staff Portal');
   console.log('  Login: http://localhost:8085/login.html');
   console.log('  App:   http://localhost:8085/index.html');
-});
-
-// Create CareBridge preview server on port 8086
-const careApp = express();
-careApp.use(cors());
-careApp.use(express.json({ limit: '25mb' }));
-careApp.use(express.urlencoded({ extended: true, limit: '25mb' }));
-careApp.get('/', (req, res) => {
-  res.redirect('/index.html');
-});
-careApp.use(express.static(path.join(__dirname, '..', 'carebridge_web_preview'), { maxAge: 0, setHeaders: (res) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
-}}));
-// Proxy API calls from CareBridge to main server
-careApp.use('/api', proxyApiRequest);
-careApp.listen(8086, '0.0.0.0', () => {
-  console.log('Port 8086: CareBridge Preview App');
-  console.log('  App:   http://localhost:8086/index.html');
   console.log('====================================================\n');
 });

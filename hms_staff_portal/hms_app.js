@@ -121,7 +121,7 @@ let hmsDatabase = {
     ]
   },
   payments: [
-    { txId: 'TXN-991823', date: '13 Aug 2026', method: 'UPI (Google Pay)', amount: 10000.00, status: 'Paid' }
+    { txId: 'TXN-991823', date: '13-Aug-2026, 10:30 AM', date_label: '13-Aug-2026, 10:30 AM', dateLabel: '13-Aug-2026, 10:30 AM', method: 'UPI (Google Pay)', amount: 10000.00, status: 'Paid', payer: 'Priya Lakshmi (Caregiver)' }
   ]
 };
 
@@ -860,13 +860,19 @@ function applyStaffPermissions() {
   if (nameElem) nameElem.innerText = `${activeStaff.name} (${activeStaff.title})`;
   if (iconElem) iconElem.className = `fa-solid ${activeStaff.icon}`;
 
+  // Sync quick switcher select
+  const switchSelect = document.getElementById('quickStaffSwitchSelect');
+  if (switchSelect && activeStaff.deptKey) {
+    switchSelect.value = activeStaff.deptKey;
+  }
+
   // Populate the read-only doctor info display in the ward rounds form
   const doctorDisplay = document.getElementById('trtDoctorDisplay');
   const deptDisplay   = document.getElementById('trtDeptDisplay');
   if (doctorDisplay) doctorDisplay.textContent = activeStaff.name;
   if (deptDisplay)   deptDisplay.textContent   = activeStaff.title;
 
-  const allDepts = ['reception', 'doctor', 'laboratory', 'pharmacy', 'billing', 'inspector'];
+  const allDepts = ['reception', 'nurse', 'doctor', 'laboratory', 'pharmacy', 'billing', 'inspector'];
   allDepts.forEach(deptId => {
     const tabElem = document.getElementById('tab-nav-' + deptId);
     const lockSpan = document.getElementById('tab-lock-' + deptId);
@@ -881,6 +887,14 @@ function applyStaffPermissions() {
     }
   });
 }
+
+function quickSwitchStaffAccount(deptKey) {
+  if (hmsStaffAccounts[deptKey]) {
+    hmsSetSession(deptKey);
+    loginHmsStaff(deptKey);
+  }
+}
+window.quickSwitchStaffAccount = quickSwitchStaffAccount;
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -972,6 +986,18 @@ function switchDept(deptId) {
     if (typeof loadAndRenderNurseLabAssignments === 'function') {
       loadAndRenderNurseLabAssignments();
     }
+  }
+  if (deptId === 'billing') {
+    const billSel = document.getElementById('billAdmissionSelect');
+    if (billSel && (!billSel.value || billSel.value === '')) {
+      if (billSel.options.length > 1) {
+        billSel.selectedIndex = 1;
+        handleBillAdmissionChange(true);
+      }
+    } else if (billSel && billSel.value) {
+      handleBillAdmissionChange(false);
+    }
+    renderPaymentLedger();
   }
 }
 
@@ -4678,12 +4704,1429 @@ async function updateBillCategoryState() {
 // Preserve backwards-compatible alias for Room Rent callers
 const updateBillRoomRentState = updateBillCategoryState;
 
+// ===============================================================
+// MODULE 6: BILLING & INSURANCE DESK (REAL-WORLD HMS STANDARDS)
+// ===============================================================
+
+// Real-world dynamic state management for Billing Desk
+let billingActiveAdmissionId = '';
+let billingPatientContext = null;
+let roomStayLogs = [];
+let totalRoomStayCharge = 0;
+let addRoomChargesToDraftEnabled = true;
+let draftInvoiceItems = [];
+let advanceDepositAmount = 5000.00; // Standard hospital IPD advance deposit
+let tpaInsuranceState = {
+  insurerName: 'Star Health and Allied Insurance',
+  policyId: 'POL-8842-STAR',
+  authId: 'AUTH-2026-99214',
+  preAuthAmount: 50000.00,
+  approvedAmount: 50000.00,
+  copayAmount: 5000.00,
+  stage: 'Under Review' // 'Submitted', 'Under Review', 'Approved', 'Settled'
+};
+let finalBillGenerated = false;
+let finalBillInvoiceNo = '';
+
+/**
+ * Clean Date Formatter for Ledger & Billing Records
+ * Resolves dates into static, immutable "DD-MMM-YYYY, hh:mm AM/PM" strings.
+ * Never defaults to current live clock for past or existing transactions.
+ */
+function formatLedgerDate(dateVal, fallbackDateStr = '13-Aug-2026, 10:30 AM') {
+  if (!dateVal || dateVal === 'undefined' || dateVal === 'null') {
+    return fallbackDateStr;
+  }
+
+  if (typeof dateVal === 'string') {
+    const trimmed = dateVal.trim();
+    // 1. If it's already an immutable formatted string like "22-Oct-2026, 07:26 PM" or "13-Aug-2026, 10:30 AM"
+    if (/^\d{1,2}-[A-Za-z]{3}-\d{4}/.test(trimmed)) {
+      return trimmed;
+    }
+
+    // 2. If it's a date string like "13 Aug 2026" or "13 August 2026"
+    const matchSimple = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/);
+    if (matchSimple) {
+      const d = String(matchSimple[1]).padStart(2, '0');
+      const m = matchSimple[2].slice(0, 3);
+      const y = matchSimple[3];
+      return `${d}-${m}-${y}, 10:30 AM`;
+    }
+
+    // 3. If string like "Today 09:30 AM" or "Yesterday 06:00 PM"
+    if (trimmed.toLowerCase().startsWith('today')) {
+      const timePart = trimmed.replace(/today/i, '').trim();
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${day}-${monthNames[now.getMonth()]}-${now.getFullYear()}, ${timePart || '10:30 AM'}`;
+    }
+    if (trimmed.toLowerCase().startsWith('yesterday')) {
+      const timePart = trimmed.replace(/yesterday/i, '').trim();
+      const yest = new Date(Date.now() - 86400000);
+      const day = String(yest.getDate()).padStart(2, '0');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${day}-${monthNames[yest.getMonth()]}-${yest.getFullYear()}, ${timePart || '10:30 AM'}`;
+    }
+
+    // 4. Try parsing ISO or other standard timestamp string
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      const day = String(parsed.getDate()).padStart(2, '0');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[parsed.getMonth()];
+      const year = parsed.getFullYear();
+      let hours = parsed.getHours();
+      const minutes = String(parsed.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? String(hours).padStart(2, '0') : '12';
+      return `${day}-${month}-${year}, ${hours}:${minutes} ${ampm}`;
+    }
+
+    return trimmed;
+  }
+
+  if (dateVal instanceof Date) {
+    if (isNaN(dateVal.getTime())) return fallbackDateStr;
+    const day = String(dateVal.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[dateVal.getMonth()];
+    const year = dateVal.getFullYear();
+    let hours = dateVal.getHours();
+    const minutes = String(dateVal.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? String(hours).padStart(2, '0') : '12';
+    return `${day}-${month}-${year}, ${hours}:${minutes} ${ampm}`;
+  }
+
+  if (typeof dateVal === 'number') {
+    const numDate = new Date(dateVal);
+    if (!isNaN(numDate.getTime())) {
+      return formatLedgerDate(numDate, fallbackDateStr);
+    }
+  }
+
+  return fallbackDateStr;
+}
+
+/**
+ * 1. RECEPTION & ROOM TRANSFER LOGIC INTEGRATION
+ * Connects Billing module to global Admission/Reception state (room transfer audit logs).
+ * Helper calculateRoomStayCharges(patientIdOrAdmissionId):
+ * - Parses all transfer logs for the active admission (e.g. General Ward to ICU).
+ * - Computes pro-rata/daily duration for each room tier (Duration = CheckOutTimestamp - CheckInTimestamp).
+ * - Multiplies duration by the respective daily room rate.
+ */
+function calculateRoomStayCharges(patientIdOrAdmissionId) {
+  const admissionId = patientIdOrAdmissionId || billingActiveAdmissionId;
+  if (!admissionId) {
+    roomStayLogs = [];
+    totalRoomStayCharge = 0;
+    renderRoomLogsTable();
+    return { logs: [], total: 0 };
+  }
+
+  // Lookup admission in backendActiveAdmissions or hmsDatabase.patients
+  const admission = (backendActiveAdmissions || []).find(a => a.admissionId === admissionId || a.patientId === admissionId)
+    || (hmsDatabase.patients || []).find(p => p.admissionId === admissionId || p.patientId === admissionId)
+    || { admissionId, roomNumber: 'ICU Room 304', fullName: 'Active Inpatient' };
+
+  // Collect transfer logs for this admission from hmsDatabase.patientTransfers
+  let transfers = (hmsDatabase.patientTransfers || []).filter(t => t.admissionId === admission.admissionId || t.patientId === admission.patientId);
+
+  // If no transfers exist in database, check if seed transfers exist for known demo admissions
+  if (transfers.length === 0) {
+    if (admission.admissionId === '26CAR008' || admission.admissionId === 'HMS-2026-8842') {
+      transfers = [
+        {
+          id: 1,
+          admissionId: admission.admissionId,
+          fromDept: 'Emergency',
+          toDept: 'Cardiology',
+          fromRoom: 'ICU Room 304',
+          toRoom: 'Cardio Ward Bed 3',
+          transferDate: '2026-10-20 11:30:00'
+        }
+      ];
+    } else if (admission.admissionId === '26CAR007') {
+      transfers = [
+        {
+          id: 2,
+          admissionId: '26CAR007',
+          fromDept: 'Paediatrics',
+          toDept: 'Paediatrics',
+          fromRoom: 'Paediatric Ward - Bed 2',
+          toRoom: 'Semi-Private Room 401',
+          transferDate: '2026-10-21 14:15:00'
+        }
+      ];
+    }
+  }
+
+  // Sort transfers chronologically
+  transfers.sort((a, b) => new Date(a.transferDate || 0) - new Date(b.transferDate || 0));
+
+  // Determine check-in date
+  let admissionDateStr = admission.admissionDate || admission.created_at || '2026-10-18';
+  let admissionTimeStr = admission.admissionTime || '09:00:00';
+  let checkInTime = new Date(`${admissionDateStr}T${admissionTimeStr}`);
+  if (isNaN(checkInTime.getTime())) {
+    checkInTime = new Date(Date.now() - 3 * 86400000); // 3 days ago default
+  }
+
+  const now = new Date();
+  const legs = [];
+
+  // Room Rate Resolver Helper
+  function getDailyRateForRoom(roomName) {
+    const clean = String(roomName || '').toUpperCase();
+    if (clean.includes('ICU') || clean.includes('CRITICAL')) return { tier: 'ICU Tier', rate: 12000.00 };
+    if (clean.includes('DELUXE') || clean.includes('SUITE')) return { tier: 'Deluxe Tier', rate: 5500.00 };
+    if (clean.includes('SEMI-PRIVATE')) return { tier: 'Semi-Private Tier', rate: 2200.00 };
+    if (clean.includes('PRIVATE')) return { tier: 'Private Tier', rate: 3500.00 };
+    return { tier: 'General Ward Tier', rate: 1200.00 };
+  }
+
+  function formatStayDuration(totalHours) {
+    const wholeDays = Math.floor(totalHours / 24);
+    const remHours = totalHours % 24;
+    if (wholeDays > 0) {
+      return remHours > 0 ? `${wholeDays} Days, ${remHours} Hours` : `${wholeDays} Days`;
+    }
+    return `${remHours} Hours`;
+  }
+
+  if (transfers.length === 0) {
+    // Single room stay from check-in to current time
+    const roomName = admission.roomNumber || admission.room || 'General Ward A - Bed 1';
+    const rateInfo = getDailyRateForRoom(roomName);
+    const durationMs = Math.max(3600000, now.getTime() - checkInTime.getTime());
+    const durationHours = Math.max(1, Math.round(durationMs / 3600000));
+    const billedDays = Math.max(1, Math.round(durationHours / 24));
+    const subtotal = billedDays * rateInfo.rate;
+    const durationText = formatStayDuration(durationHours);
+
+    legs.push({
+      room: roomName,
+      tier: rateInfo.tier,
+      checkIn: checkInTime,
+      checkOut: now,
+      durationHours,
+      durationDays: billedDays,
+      durationText,
+      dailyRate: rateInfo.rate,
+      subtotal
+    });
+  } else {
+    // Leg 1: From check-in to first transfer
+    let currentIn = checkInTime;
+    for (let i = 0; i < transfers.length; i++) {
+      const t = transfers[i];
+      const transferTime = new Date(t.transferDate);
+      const outTime = (!isNaN(transferTime.getTime()) && transferTime > currentIn) ? transferTime : new Date(currentIn.getTime() + 86400000);
+      const roomName = t.fromRoom || (i === 0 ? (admission.roomNumber || 'ICU Room 304') : transfers[i - 1].toRoom);
+      const rateInfo = getDailyRateForRoom(roomName);
+      const durationMs = Math.max(3600000, outTime.getTime() - currentIn.getTime());
+      const durationHours = Math.max(1, Math.round(durationMs / 3600000));
+      const billedDays = Math.max(1, Math.round(durationHours / 24));
+      const subtotal = billedDays * rateInfo.rate;
+      const durationText = formatStayDuration(durationHours);
+
+      legs.push({
+        room: roomName,
+        tier: rateInfo.tier,
+        checkIn: currentIn,
+        checkOut: outTime,
+        durationHours,
+        durationDays: billedDays,
+        durationText,
+        dailyRate: rateInfo.rate,
+        subtotal
+      });
+
+      currentIn = outTime;
+    }
+
+    // Final Leg: From last transfer to current time in active target room
+    const lastTransfer = transfers[transfers.length - 1];
+    const activeRoom = admission.roomNumber || lastTransfer.toRoom;
+    const rateInfo = getDailyRateForRoom(activeRoom);
+    const durationMs = Math.max(3600000, now.getTime() - currentIn.getTime());
+    const durationHours = Math.max(1, Math.round(durationMs / 3600000));
+    const billedDays = Math.max(1, Math.round(durationHours / 24));
+    const subtotal = billedDays * rateInfo.rate;
+    const durationText = formatStayDuration(durationHours);
+
+    legs.push({
+      room: activeRoom,
+      tier: rateInfo.tier,
+      checkIn: currentIn,
+      checkOut: now,
+      durationHours,
+      durationDays: billedDays,
+      durationText,
+      dailyRate: rateInfo.rate,
+      subtotal
+    });
+  }
+
+  roomStayLogs = legs;
+  totalRoomStayCharge = legs.reduce((acc, leg) => acc + leg.subtotal, 0);
+
+  renderRoomLogsTable();
+  return { logs: legs, total: totalRoomStayCharge };
+}
+
+/**
+ * Render the Available Room Logs Card
+ */
+function renderRoomLogsTable() {
+  const tbody = document.getElementById('roomLogsTbody');
+  const totalEl = document.getElementById('roomLogsTotal');
+  if (!tbody) return;
+
+  if (roomStayLogs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 12px;">No room stay logs available for active patient.</td></tr>`;
+    if (totalEl) totalEl.innerText = '₹0.00';
+    return;
+  }
+
+  let html = '';
+  roomStayLogs.forEach(leg => {
+    html += `
+      <tr>
+        <td>
+          <div style="font-weight: 700; color: var(--navy-dark);">${escapeHtml(leg.room)}</div>
+          <div style="font-size: 10px; color: var(--text-secondary);">${escapeHtml(leg.tier)}</div>
+        </td>
+        <td style="white-space: nowrap;">
+          <span style="font-weight: 600;">${leg.durationText}</span>
+        </td>
+        <td style="text-align: right; font-weight: 600;">₹${leg.dailyRate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td style="text-align: right; font-weight: 700; color: #0284c7;">₹${leg.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+  if (totalEl) totalEl.innerText = `₹${totalRoomStayCharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+}
+
+/**
+ * Checkbox Toggle: Add Room Charges to Draft Invoice
+ */
+function toggleAddRoomChargeToDraft(isChecked) {
+  addRoomChargesToDraftEnabled = isChecked;
+  refreshAggregatedDraftInvoice(false);
+}
+
+/**
+ * 2. DRAFT INVOICE & AGGREGATED MODULE CHARGES
+ * Replaces static entry with an Aggregated Draft Invoice Table aggregating items from all hospital modules:
+ * - Stay (Room transfer stay calculator)
+ * - Service (Doctor Ward Visits from Module 3)
+ * - Lab (Lab Tests & Assignments from Module 4)
+ * - Pharmacy (Medications & Dispensations from Module 5)
+ */
+function refreshAggregatedDraftInvoice(manualSync = false) {
+  const admissionId = billingActiveAdmissionId;
+  const items = [];
+
+  // 1. Ensure Room Stay charges are calculated from backend transfer audit logs
+  if (roomStayLogs.length === 0) {
+    calculateRoomStayCharges(admissionId);
+  }
+
+  // Inject room stay line items directly into Draft Invoice
+  if (roomStayLogs.length > 0) {
+    roomStayLogs.forEach((leg, idx) => {
+      items.push({
+        id: `STAY-${idx + 1}`,
+        type: 'Stay',
+        name: `${leg.room} Accommodation (${leg.durationText})`,
+        provider: 'Inpatient Nursing Station',
+        qty: leg.durationDays,
+        qtyText: leg.durationText || `${leg.durationDays} ${leg.durationDays === 1 ? 'Day' : 'Days'}`,
+        rate: leg.dailyRate,
+        taxPercent: 0,
+        amount: leg.subtotal,
+        isRoomStay: true,
+        sourceModule: 'Module 1: Transfers'
+      });
+    });
+  }
+
+  // 2. Doctor Ward Visits & Consultations (Module 3)
+  const patientTreatments = (hmsDatabase.treatments || []).filter(t => !admissionId || t.admissionId === admissionId);
+  if (patientTreatments.length > 0) {
+    patientTreatments.forEach((trt, idx) => {
+      const docName = trt.doctorName || 'Attending Physician';
+      const isCardio = docName.toLowerCase().includes('aris') || docName.toLowerCase().includes('cardio');
+      const rate = isCardio ? 12000.00 : 2500.00;
+      items.push({
+        id: `DOC-RND-${trt.id || idx + 1}`,
+        type: 'Service',
+        name: `Inpatient Ward Round & Clinical Review (${trt.dept || 'Clinical'})`,
+        provider: docName,
+        qty: 1,
+        qtyText: '1 Visit',
+        rate: rate,
+        taxPercent: 0,
+        amount: rate,
+        sourceModule: 'Module 3: Doctor'
+      });
+    });
+  } else {
+    // Default standard consultation charge
+    items.push({
+      id: 'DOC-CONS-1',
+      type: 'Service',
+      name: 'Specialist Inpatient Physician Consultation',
+      provider: 'Dr. Aris Thorne (Cardiology)',
+      qty: 1,
+      qtyText: '1 Visit',
+      rate: 12000.00,
+      taxPercent: 0,
+      amount: 12000.00,
+      sourceModule: 'Module 3: Doctor'
+    });
+  }
+
+  // 3. Laboratory Tests & Diagnostics (Module 4)
+  const patientLabs = (hmsDatabase.labReports || []).filter(l => !admissionId || l.admissionId === admissionId);
+  if (patientLabs.length > 0) {
+    patientLabs.forEach((lab, idx) => {
+      let labRate = 850.00;
+      const titleLower = (lab.title || '').toLowerCase();
+      if (titleLower.includes('troponin') || titleLower.includes('cardiac')) labRate = 2500.00;
+      else if (titleLower.includes('ct') || titleLower.includes('scan')) labRate = 8000.00;
+      else if (titleLower.includes('cbc') || titleLower.includes('blood count')) labRate = 850.00;
+      else if (titleLower.includes('lft') || titleLower.includes('liver')) labRate = 1200.00;
+
+      items.push({
+        id: `LAB-${lab.id || idx + 1}`,
+        type: 'Lab',
+        name: `${lab.title || 'Diagnostic Test'} (${lab.category || 'Pathology'})`,
+        provider: 'Central Diagnostics & Pathology Lab',
+        qty: 1,
+        qtyText: '1 Test',
+        rate: labRate,
+        taxPercent: 0,
+        amount: labRate,
+        sourceModule: 'Module 4: Laboratory'
+      });
+    });
+  } else {
+    items.push({
+      id: 'LAB-DEFAULT',
+      type: 'Lab',
+      name: 'Complete Blood Count (CBC) & Serum Troponin T',
+      provider: 'Central Diagnostics Lab',
+      qty: 1,
+      qtyText: '1 Test',
+      rate: 8000.00,
+      taxPercent: 0,
+      amount: 8000.00,
+      sourceModule: 'Module 4: Laboratory'
+    });
+  }
+
+  // 4. Pharmacy & Medication Dispense (Module 5)
+  const patientRx = (hmsDatabase.prescriptions || []).filter(r => !admissionId || r.admissionId === admissionId);
+  if (patientRx.length > 0) {
+    patientRx.forEach((rx, idx) => {
+      let medRate = 450.00;
+      const rxLower = (rx.name || '').toLowerCase();
+      if (rxLower.includes('ceftriaxone')) medRate = 1450.00;
+      else if (rxLower.includes('atorvastatin')) medRate = 650.00;
+      else if (rxLower.includes('injection') || rxLower.includes('iv')) medRate = 2200.00;
+
+      items.push({
+        id: `RX-${rx.id || idx + 1}`,
+        type: 'Pharmacy',
+        name: `${rx.name || 'Prescription Medication'} (${rx.duration || 'Pack'})`,
+        provider: 'Inpatient Pharmacy Dispense Unit',
+        qty: 1,
+        qtyText: '1 Pack',
+        rate: medRate,
+        taxPercent: 5,
+        amount: Math.round(medRate * 1.05 * 100) / 100,
+        sourceModule: 'Module 5: Pharmacy'
+      });
+    });
+  } else {
+    items.push({
+      id: 'PHARM-DEFAULT',
+      type: 'Pharmacy',
+      name: 'Pharmacy & IV Medication Package (Ceftriaxone & Atorvastatin)',
+      provider: 'Inpatient Central Pharmacy',
+      qty: 1,
+      qtyText: '1 Pack',
+      rate: 8500.00,
+      taxPercent: 5,
+      amount: 8925.00,
+      sourceModule: 'Module 5: Pharmacy'
+    });
+  }
+
+  // 5. Append existing items from hmsDatabase.billing.items if not already covered
+  (hmsDatabase.billing.items || []).forEach((bItem, idx) => {
+    if (bItem.category === 'Room Rent') return; // Handled by roomStayLogs
+    if (bItem.category === 'Consultation' && patientTreatments.length > 0) return;
+    if (bItem.category === 'Diagnostics' && patientLabs.length > 0) return;
+    if (bItem.category === 'Pharmacy' && patientRx.length > 0) return;
+
+    let bType = 'Service';
+    if (bItem.category === 'Diagnostics') bType = 'Lab';
+    else if (bItem.category === 'Pharmacy') bType = 'Pharmacy';
+
+    items.push({
+      id: `CUSTOM-BILL-${idx + 1}`,
+      type: bType,
+      name: bItem.desc || bItem.description || `${bItem.category} Charge`,
+      provider: 'Billing Administration',
+      qty: 1,
+      qtyText: '1 Unit',
+      rate: Number(bItem.amount || 0),
+      taxPercent: 0,
+      amount: Number(bItem.amount || 0),
+      sourceModule: 'Module 6: Billing Desk'
+    });
+  });
+
+  draftInvoiceItems = items;
+  renderDraftInvoiceTable();
+  updateOverallBillSummary();
+
+  if (manualSync) {
+    alert(`Sync Complete!\nAggregated ${draftInvoiceItems.length} charge items across all clinical modules.`);
+  }
+}
+
+/**
+ * Render the Aggregated Draft Invoice Table & Subtotals
+ * Strictly read-only for medical billing audit integrity.
+ * No discount column.
+ */
+function renderDraftInvoiceTable() {
+  const tbody = document.getElementById('draftInvoiceTbody');
+  const grossEl = document.getElementById('draftGrossAmount');
+  const taxEl = document.getElementById('draftTaxAmount');
+  const payableEl = document.getElementById('draftPayableAmount');
+  if (!tbody) return;
+
+  if (draftInvoiceItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 20px;">No draft items. Select a patient or sync hospital modules.</td></tr>`;
+    if (grossEl) grossEl.innerText = '₹0.00';
+    if (taxEl) taxEl.innerText = '+₹0.00';
+    if (payableEl) payableEl.innerText = '₹0.00';
+    return;
+  }
+
+  // Strict Financial Calculation:
+  // 1. Calculate Gross Charges & Item Tax
+  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
+  const totalTax = draftInvoiceItems.reduce((acc, item) => {
+    const lineSubtotal = Number(item.rate) * Number(item.qty);
+    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
+  }, 0);
+
+  // 2. Total Payable (Gross + Tax)
+  const totalPayable = grossCharges + totalTax;
+
+  let html = '';
+  draftInvoiceItems.forEach(item => {
+    const lineGross = (Number(item.qty) || 1) * (Number(item.rate) || 0);
+    const taxPct = Number(item.taxPercent) || 0;
+    const lineTax = lineGross * (taxPct / 100);
+    const lineTotal = lineGross + lineTax;
+
+    let badgeClass = 'badge-type-service';
+    if (item.type === 'Stay') badgeClass = 'badge-type-stay';
+    else if (item.type === 'Lab') badgeClass = 'badge-type-lab';
+    else if (item.type === 'Pharmacy') badgeClass = 'badge-type-pharmacy';
+
+    const displayQty = item.qtyText || (item.type === 'Stay' ? `${item.qty} Days` : `${item.qty} Unit`);
+
+    html += `
+      <tr>
+        <td><span class="draft-type-badge ${badgeClass}">${item.type}</span></td>
+        <td>
+          <div style="font-weight: 700; color: var(--navy-dark);">${escapeHtml(item.name)}</div>
+          <div style="font-size: 11px; color: var(--text-secondary);">${escapeHtml(item.sourceModule || item.provider)}</div>
+        </td>
+        <td>${escapeHtml(item.provider)}</td>
+        <td style="text-align: center; font-weight: 600;">${escapeHtml(displayQty)}</td>
+        <td style="text-align: right;">₹${Number(item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td style="text-align: center;">${taxPct}%</td>
+        <td style="text-align: right; font-weight: 700; color: #0284c7;">₹${lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  if (grossEl) grossEl.innerText = `₹${grossCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (taxEl) taxEl.innerText = `+₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (payableEl) payableEl.innerText = `₹${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+  // Keep hmsDatabase billing total bill in sync
+  hmsDatabase.billing.totalBill = totalPayable;
+}
+
+function deleteDraftInvoiceItem(index) {
+  if (index >= 0 && index < draftInvoiceItems.length) {
+    const removed = draftInvoiceItems.splice(index, 1)[0];
+    renderDraftInvoiceTable();
+    updateOverallBillSummary();
+  }
+}
+
+function editDraftInvoiceItem(index) {
+  const item = draftInvoiceItems[index];
+  if (!item) return;
+
+  document.getElementById('customChargeEditIndex').value = index;
+  document.getElementById('customItemType').value = item.type || 'Service';
+  document.getElementById('customItemName').value = item.name || '';
+  document.getElementById('customItemProvider').value = item.provider || '';
+  document.getElementById('customItemQty').value = item.qty || 1;
+  document.getElementById('customItemRate').value = item.rate || 0;
+  document.getElementById('customItemDiscount').value = item.discount || 0;
+  document.getElementById('customItemTax').value = item.taxPercent || 0;
+  document.getElementById('customChargeModalTitle').innerText = 'Edit Hospital Charge Item';
+
+  recalcCustomModalTotal();
+  document.getElementById('customChargeModal').classList.add('active');
+}
+
+function openAddCustomChargeModal() {
+  document.getElementById('customChargeEditIndex').value = '-1';
+  document.getElementById('customChargeForm').reset();
+  document.getElementById('customItemType').value = 'Service';
+  document.getElementById('customItemQty').value = '1';
+  document.getElementById('customItemRate').value = '';
+  document.getElementById('customItemDiscount').value = '0';
+  document.getElementById('customItemTax').value = '0';
+  document.getElementById('customChargeModalTitle').innerText = 'Add Custom Hospital Line Item';
+  recalcCustomModalTotal();
+  document.getElementById('customChargeModal').classList.add('active');
+}
+
+function closeCustomChargeModal() {
+  document.getElementById('customChargeModal').classList.remove('active');
+}
+
+function recalcCustomModalTotal() {
+  const qty = parseFloat(document.getElementById('customItemQty')?.value || 1);
+  const rate = parseFloat(document.getElementById('customItemRate')?.value || 0);
+  const discount = parseFloat(document.getElementById('customItemDiscount')?.value || 0);
+  const tax = parseFloat(document.getElementById('customItemTax')?.value || 0);
+
+  const total = Math.max(0, (qty * rate - discount) * (1 + tax / 100));
+  const el = document.getElementById('customItemCalculatedTotal');
+  if (el) el.innerText = `₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+}
+
+function handleSaveCustomCharge() {
+  const editIndex = parseInt(document.getElementById('customChargeEditIndex').value, 10);
+  const type = document.getElementById('customItemType').value;
+  const name = document.getElementById('customItemName').value.trim();
+  const provider = document.getElementById('customItemProvider').value.trim();
+  const qty = parseFloat(document.getElementById('customItemQty').value || 1);
+  const rate = parseFloat(document.getElementById('customItemRate').value || 0);
+  const discount = parseFloat(document.getElementById('customItemDiscount').value || 0);
+  const taxPercent = parseFloat(document.getElementById('customItemTax').value || 0);
+  const amount = Math.max(0, (qty * rate - discount) * (1 + taxPercent / 100));
+
+  const newItem = {
+    id: editIndex >= 0 ? draftInvoiceItems[editIndex].id : `CUSTOM-${Date.now()}`,
+    type,
+    name,
+    provider,
+    qty,
+    rate,
+    discount,
+    taxPercent,
+    amount,
+    sourceModule: 'Module 6: Billing Officer'
+  };
+
+  if (editIndex >= 0 && editIndex < draftInvoiceItems.length) {
+    draftInvoiceItems[editIndex] = newItem;
+  } else {
+    draftInvoiceItems.push(newItem);
+  }
+
+  closeCustomChargeModal();
+  renderDraftInvoiceTable();
+  updateOverallBillSummary();
+}
+
+/**
+ * 3. PAYMENT & RECONCILIATION LEDGER FIXES
+ * - Resolves the `undefined` date bug in the ledger table. Formats dates cleanly using YYYY-MM-DD HH:mm AM/PM.
+ * - Table headers: Txn ID, Date & Time, Payment Mode, Reference/Payer, Amount, Status, Receipt Action.
+ * - Collect Payment Widget: Cash, Card, UPI / NetBanking, Reference Number, Payment Amount.
+ */
+let isPaymentProcessing = false;
+
+function showPaymentAlert(msg, type = 'success') {
+  const alertEl = document.getElementById('collectPaymentAlert');
+  if (!alertEl) return;
+  alertEl.style.display = 'block';
+  if (type === 'success') {
+    alertEl.style.background = '#dcfce7';
+    alertEl.style.color = '#15803d';
+    alertEl.style.border = '1px solid #86efac';
+  } else if (type === 'warning') {
+    alertEl.style.background = '#fef3c7';
+    alertEl.style.color = '#b45309';
+    alertEl.style.border = '1px solid #fde68a';
+  } else {
+    alertEl.style.background = '#fee2e2';
+    alertEl.style.color = '#b91c1c';
+    alertEl.style.border = '1px solid #fca5a5';
+  }
+  alertEl.innerHTML = msg;
+  clearTimeout(alertEl._timer);
+  alertEl._timer = setTimeout(() => {
+    alertEl.style.display = 'none';
+  }, 6000);
+}
+
+function renderPaymentLedger() {
+  const tbody = document.getElementById('paymentLedgerTbody');
+  if (!tbody) return;
+
+  const payments = hmsDatabase.payments || [];
+  if (payments.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 16px;">No transactions recorded in ledger.</td></tr>`;
+    return;
+  }
+
+  let html = '';
+  payments.forEach((p, idx) => {
+    // Extract and permanently freeze date so it never runs like a dynamic clock
+    const rawDate = p.date || p.date_label || p.dateLabel || p.paidAt || p.paid_at || p.timestamp || p.created_at;
+    const cleanDate = formatLedgerDate(rawDate, '13-Aug-2026, 10:30 AM');
+    p.date = cleanDate;
+    p.date_label = cleanDate;
+    p.dateLabel = cleanDate;
+
+    const amountNum = Number(p.amount) || 0;
+    const mode = p.method || 'UPI / NetBanking';
+    const refPayer = p.payer || p.reference || (billingPatientContext ? billingPatientContext.caregiverName + ' (Caregiver)' : 'Sarah Vance (Caregiver)');
+    const isNewRow = p._isNew ? 'row-highlight-new' : '';
+
+    let modeIcon = '<i class="fa-solid fa-qrcode" style="color: #0284c7;"></i>';
+    if (mode.toLowerCase().includes('card')) modeIcon = '<i class="fa-solid fa-credit-card" style="color: #7c3aed;"></i>';
+    if (mode.toLowerCase().includes('cash')) modeIcon = '<i class="fa-solid fa-money-bill-wave" style="color: #10b981;"></i>';
+
+    html += `
+      <tr class="${isNewRow}">
+        <td><code>${escapeHtml(p.txId || 'TXN-000000')}</code></td>
+        <td style="font-weight: 500; white-space: nowrap;">${cleanDate}</td>
+        <td><span style="display: flex; align-items: center; gap: 6px; font-weight: 600;">${modeIcon} ${escapeHtml(mode)}</span></td>
+        <td style="font-size: 12px; color: #334155;">${escapeHtml(refPayer)}</td>
+        <td style="font-weight: 700; color: var(--emerald-success);">₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td><span class="badge badge-success">${escapeHtml(p.status || 'Paid')}</span></td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+  updateOverallBillSummary();
+
+  // Clear transient highlight flags
+  setTimeout(() => {
+    payments.forEach(p => { delete p._isNew; });
+  }, 3000);
+}
+
+/**
+ * Collect Payment Widget Handler: Process Payment
+ * - Instant (0ms) in-memory update and immediate ledger reflection
+ * - Strict duplicate payment prevention (guards against fast double-clicks and identical submissions)
+ * - Non-blocking asynchronous backend sync
+ */
+async function handleCollectPayment() {
+  if (isPaymentProcessing) {
+    console.warn('Payment submission locked: duplicate click ignored.');
+    return;
+  }
+
+  if (!activeStaff.allowedDepts.includes('billing')) {
+    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can process hospital payments.`);
+    return;
+  }
+
+  const amtInput = document.getElementById('collectPayAmount');
+  const payerInput = document.getElementById('collectPayPayer');
+  const modeRadios = document.getElementsByName('collectPayMode');
+  const processBtn = document.getElementById('btnProcessPayment');
+
+  const payer = (payerInput?.value || '').trim();
+  if (!payer) {
+    showPaymentAlert('⚠️ Please enter Payer / Caregiver Name before submitting.', 'warning');
+    payerInput?.focus();
+    return;
+  }
+
+  const amount = parseFloat(amtInput?.value || 0);
+  if (!amount || amount <= 0) {
+    showPaymentAlert('⚠️ Please enter a valid positive payment amount.', 'warning');
+    amtInput?.focus();
+    return;
+  }
+
+  let selectedMode = 'UPI / NetBanking';
+  modeRadios.forEach(r => {
+    if (r.checked) selectedMode = r.value;
+  });
+
+  // Duplicate Payment Guard: Prevent same payer & amount within 15 seconds
+  const nowMs = Date.now();
+  const isDuplicate = (hmsDatabase.payments || []).slice(0, 5).some(p => {
+    return Math.abs(Number(p.amount) - amount) < 0.01 &&
+           String(p.payer || '').trim().toLowerCase() === payer.toLowerCase() &&
+           (nowMs - (p._clientTimestamp || 0) < 15000);
+  });
+
+  if (isDuplicate) {
+    showPaymentAlert(`⚠️ <strong>Duplicate Payment Blocked:</strong> A payment of ₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} for "${escapeHtml(payer)}" was already recorded moments ago.`, 'warning');
+    return;
+  }
+
+  // 1. Lock submission & set button to active processing state
+  isPaymentProcessing = true;
+  if (processBtn) {
+    processBtn.disabled = true;
+    processBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing &amp; Syncing...';
+  }
+
+  // 2. Generate transaction identifiers
+  const newTxId = 'TXN-' + Math.floor(100000 + Math.random() * 900000);
+  const autoRef = selectedMode.includes('UPI') ? 'UPI-' + nowMs : 'CTR-' + Math.floor(100000 + Math.random() * 900000);
+  const now = new Date();
+  const formattedDate = formatLedgerDate(now);
+
+  const newPayment = {
+    txId: newTxId,
+    admissionId: billingActiveAdmissionId || '26CAR008',
+    date: formattedDate,
+    date_label: formattedDate,
+    dateLabel: formattedDate,
+    method: selectedMode,
+    reference: autoRef,
+    payer: payer,
+    amount: amount,
+    status: 'Paid',
+    _clientTimestamp: nowMs,
+    _isNew: true
+  };
+
+  // 3. INSTANT (0ms) In-Memory Update & UI Reflection
+  hmsDatabase.payments.unshift(newPayment);
+
+  // Clear input fields immediately
+  if (amtInput) amtInput.value = '';
+  if (payerInput) payerInput.value = '';
+
+  // Render ledger and summary immediately (No lag or delay!)
+  renderPaymentLedger();
+  updateOverallBillSummary();
+
+  // Show instant success banner without blocking alert dialog
+  showPaymentAlert(`✅ <strong>Payment Processed Instantly!</strong> Txn ID: <code>${newTxId}</code> | Amount: <strong>₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> (${selectedMode}) | Payer: <strong>${escapeHtml(payer)}</strong>`, 'success');
+
+  // 4. Background Non-blocking Server Sync (3.5s timeout)
+  const syncPayload = {
+    admissionId: billingActiveAdmissionId || '26CAR008',
+    method: selectedMode,
+    amount: amount,
+    reference: autoRef,
+    payer: payer,
+    date: formattedDate,
+    txId: newTxId
+  };
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 3500);
+
+  fetch(`${HMS_API_BASE}/api/hms/payments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(syncPayload),
+    signal: abortController.signal
+  }).then(async res => {
+    clearTimeout(timeoutId);
+    saveHmsDatabase();
+  }).catch(err => {
+    clearTimeout(timeoutId);
+    console.warn('Backend payment sync fallback:', err.message);
+    saveHmsDatabase();
+  });
+
+  // 5. Cooldown re-enable button after 1.5 seconds
+  setTimeout(() => {
+    isPaymentProcessing = false;
+    if (processBtn) {
+      processBtn.disabled = false;
+      processBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance';
+    }
+  }, 1500);
+}
+
+/**
+ * 4. CASHLESS INSURANCE & TPA CLAIM PIPELINE
+ * Fields: TPA/Insurer Name, Policy ID, Claim / Pre-Auth ID, Pre-Auth Approved Amount, Approved Amount, Co-pay Amount.
+ * Visual Pipeline Status Bar: Claim Submitted -> Approval Pending -> Co-pay Pending -> Finalized.
+ */
+function setTpaPipelineStage(stage) {
+  tpaInsuranceState.stage = stage;
+  const stepsContainer = document.getElementById('tpaPipelineContainer');
+  const badgeEl = document.getElementById('tpaBadgeStatus');
+  const hiddenSelect = document.getElementById('insuranceClaimStatusSelect');
+
+  if (hiddenSelect) hiddenSelect.value = stage;
+
+  const stageOrder = ['Submitted', 'Under Review', 'Approved', 'Settled'];
+  const currentIndex = stageOrder.indexOf(stage);
+
+  if (stepsContainer) {
+    const buttons = stepsContainer.querySelectorAll('.tpa-step');
+    buttons.forEach((btn, idx) => {
+      btn.classList.remove('completed', 'active', 'pending');
+      if (idx < currentIndex) {
+        btn.classList.add('completed');
+        btn.querySelector('.tpa-step-icon').innerHTML = '<i class="fa-solid fa-check"></i>';
+      } else if (idx === currentIndex) {
+        btn.classList.add('active');
+        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-coins', 'fa-circle-check'];
+        btn.querySelector('.tpa-step-icon').innerHTML = `<i class="fa-solid ${icons[idx]}"></i>`;
+      } else {
+        btn.classList.add('pending');
+        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-coins', 'fa-circle-check'];
+        btn.querySelector('.tpa-step-icon').innerHTML = `<i class="fa-solid ${icons[idx]}"></i>`;
+      }
+    });
+  }
+
+  if (badgeEl) {
+    if (stage === 'Submitted') {
+      badgeEl.className = 'badge badge-info';
+      badgeEl.innerText = 'Claim Submitted';
+    } else if (stage === 'Under Review') {
+      badgeEl.className = 'badge badge-warning';
+      badgeEl.innerText = 'Approval Pending';
+    } else if (stage === 'Approved') {
+      badgeEl.className = 'badge badge-info';
+      badgeEl.innerText = 'Co-pay Pending';
+    } else if (stage === 'Settled') {
+      badgeEl.className = 'badge badge-success';
+      badgeEl.innerText = 'Finalized';
+    }
+  }
+
+  hmsDatabase.billing.claimStatus = stage;
+  updateOverallBillSummary();
+}
+
+function handleTpaFieldChange() {
+  const insurerSelect = document.getElementById('tpaInsurerSelect');
+  const policyInput = document.getElementById('tpaPolicyId');
+  const authInput = document.getElementById('tpaAuthId');
+  const preAuthInput = document.getElementById('tpaPreAuthAmount');
+  const approvedInput = document.getElementById('tpaApprovedAmount');
+  const copayInput = document.getElementById('tpaCopayAmount');
+
+  if (insurerSelect) tpaInsuranceState.insurerName = insurerSelect.value;
+  if (policyInput) tpaInsuranceState.policyId = policyInput.value;
+  if (authInput) tpaInsuranceState.authId = authInput.value;
+  if (preAuthInput) tpaInsuranceState.preAuthAmount = parseFloat(preAuthInput.value || 0);
+  if (approvedInput) tpaInsuranceState.approvedAmount = parseFloat(approvedInput.value || 0);
+  if (copayInput) tpaInsuranceState.copayAmount = parseFloat(copayInput.value || 0);
+
+  hmsDatabase.billing.insuranceCovered = tpaInsuranceState.approvedAmount;
+  updateOverallBillSummary();
+}
+
+function handleUpdateInsuranceStatus() {
+  if (!activeStaff.allowedDepts.includes('billing')) {
+    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can update insurance claim status. Please switch staff account.`);
+    return;
+  }
+
+  handleTpaFieldChange();
+  saveHmsDatabase();
+
+  alert(`Cashless Insurance & TPA Pipeline Updated!\nInsurer: ${tpaInsuranceState.insurerName}\nPre-Auth Approved: ₹${tpaInsuranceState.approvedAmount.toFixed(2)}\nStatus: ${tpaInsuranceState.stage}`);
+}
+
+/**
+ * 5. OVERALL BILL SUMMARY & QUICK ACTIONS PANEL
+ * Real-time financial metrics:
+ * - Gross Charges
+ * - Total Discount
+ * - Total Payable = Gross - Discount
+ * - Advanced Deposit Paid
+ * - Insurance Pre-Auth Approved
+ * - Payments Received
+ * - Net Payable Balance (Prominently highlighted)
+ * - Dynamic Discharge Checklist (5 indicators)
+ */
+function updateOverallBillSummary() {
+  const grossEl = document.getElementById('summaryGrossCharges');
+  const taxEl = document.getElementById('summaryTotalTax');
+  const payableEl = document.getElementById('summaryTotalPayable');
+  const advEl = document.getElementById('summaryAdvanceDeposit');
+  const insEl = document.getElementById('summaryInsuranceApproved');
+  const paidEl = document.getElementById('summaryPaymentsReceived');
+  const netEl = document.getElementById('summaryNetBalance');
+  const bannerEl = document.getElementById('netBalanceBanner');
+  const badgeEl = document.getElementById('netBalanceBadge');
+  const billStatusTag = document.getElementById('billStatusTag');
+
+  // Strict Financial Calculation:
+  // 1. Calculate Gross Charges & Item Tax
+  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
+  const totalTax = draftInvoiceItems.reduce((acc, item) => {
+    const lineSubtotal = Number(item.rate) * Number(item.qty);
+    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
+  }, 0);
+
+  // 2. Total Payable (Gross + Tax)
+  const totalPayable = grossCharges + totalTax;
+
+  // 3. Deductions (Advance + Net Insurance Approved + Ledger Payments)
+  // Insurance Net = Approved Amount - Co-pay
+  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const advance = advanceDepositAmount || 0;
+
+  let totalPaymentsReceived = 0;
+  (hmsDatabase.payments || []).forEach(p => {
+    totalPaymentsReceived += Number(p.amount) || 0;
+  });
+
+  const totalDeductions = advance + netInsuranceApproved + totalPaymentsReceived;
+
+  // 4. Net Outstanding Balance
+  const netPayableBalance = Math.round((totalPayable - totalDeductions) * 100) / 100;
+
+  if (grossEl) grossEl.innerText = `₹${grossCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (taxEl) taxEl.innerText = `+₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (payableEl) payableEl.innerText = `₹${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (advEl) advEl.innerText = `-₹${advance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (insEl) insEl.innerText = `-₹${netInsuranceApproved.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (paidEl) paidEl.innerText = `-₹${totalPaymentsReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+  if (netEl) {
+    if (netPayableBalance <= 0) {
+      netEl.innerText = netPayableBalance < 0
+        ? `₹0.00 (Refund: ₹${Math.abs(netPayableBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 })})`
+        : '₹0.00';
+    } else {
+      netEl.innerText = `₹${netPayableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    }
+  }
+
+  if (bannerEl && badgeEl) {
+    if (netPayableBalance <= 0) {
+      bannerEl.className = 'net-balance-banner clear';
+      badgeEl.innerHTML = '<span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> Clear / No Dues</span>';
+    } else {
+      bannerEl.className = 'net-balance-banner due';
+      badgeEl.innerHTML = '<span class="badge badge-danger"><i class="fa-solid fa-clock"></i> Payment Due</span>';
+    }
+  }
+
+  if (billStatusTag) {
+    billStatusTag.innerText = finalBillGenerated ? 'Final Bill Locked' : 'Draft In Progress';
+    billStatusTag.className = finalBillGenerated ? 'badge badge-success' : 'badge badge-info';
+  }
+
+  // Update Discharge Financial Clearance Checklist
+  updateDischargeChecklist(
+    draftInvoiceItems.length > 0,
+    advance >= 0,
+    finalBillGenerated,
+    tpaInsuranceState.stage === 'Settled' || tpaInsuranceState.stage === 'Approved',
+    netPayableBalance <= 0
+  );
+
+  // Sync remaining payable into global stat
+  const statBill = document.getElementById('statBillBalance');
+  if (statBill) statBill.innerText = `₹${Math.max(0, netPayableBalance).toFixed(2)}`;
+}
+
+/**
+ * Dynamic Discharge Checklist Update Helper
+ */
+function updateDischargeChecklist(chargesAdded, advanceAdjusted, finalGenerated, insuranceSettled, noDues) {
+  function setCheckItem(id, statusId, isPassed, passText, failText) {
+    const item = document.getElementById(id);
+    const tag = document.getElementById(statusId);
+    if (!item) return;
+
+    if (isPassed) {
+      item.className = 'checklist-item passed';
+      item.querySelector('.checklist-icon').innerHTML = '<i class="fa-solid fa-check"></i>';
+      if (tag) {
+        tag.className = 'badge badge-success';
+        tag.innerText = passText;
+      }
+    } else {
+      item.className = 'checklist-item failed';
+      item.querySelector('.checklist-icon').innerHTML = '<i class="fa-solid fa-xmark"></i>';
+      if (tag) {
+        tag.className = 'badge badge-warning';
+        tag.innerText = failText;
+      }
+    }
+  }
+
+  setCheckItem('chk-item-charges', 'chk-status-charges', chargesAdded, 'All Charges Added', 'Pending Charges');
+  setCheckItem('chk-item-advance', 'chk-status-advance', advanceAdjusted, 'Adjusted', 'Pending Adjustment');
+  setCheckItem('chk-item-finalbill', 'chk-status-finalbill', finalGenerated, 'Generated', 'Draft Pending');
+  setCheckItem('chk-item-insurance', 'chk-status-insurance', insuranceSettled, 'Approved', 'Approval Pending');
+  setCheckItem('chk-item-nodues', 'chk-status-nodues', noDues, 'No Dues Clear', 'Balance Pending');
+}
+
+function promptAdjustAdvanceDeposit() {
+  const input = prompt('Enter Adjusted Advance Deposit Amount (₹):', advanceDepositAmount.toString());
+  if (input !== null) {
+    const parsed = parseFloat(input);
+    if (!isNaN(parsed) && parsed >= 0) {
+      advanceDepositAmount = parsed;
+      updateOverallBillSummary();
+    }
+  }
+}
+
+/**
+ * Quick Action 1: Print Draft Invoice
+ */
+function handlePrintDraftInvoice() {
+  const patient = billingPatientContext || {
+    fullName: 'Eleanor Vance',
+    patientId: 'P-100001',
+    admissionId: billingActiveAdmissionId || 'HMS-2026-8842',
+    roomNumber: 'ICU Room 304',
+    attendingDoctor: 'Dr. Aris Thorne (Cardiology)',
+    caregiverName: 'Sarah Vance'
+  };
+
+  const invoiceNum = finalBillGenerated ? finalBillInvoiceNo : `INV-${billingActiveAdmissionId || '2026'}-DRAFT`;
+  const now = new Date();
+  const dateStr = formatLedgerDate(now);
+
+  // Strict Financial Calculations
+  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
+  const totalTax = draftInvoiceItems.reduce((acc, item) => {
+    const lineSubtotal = Number(item.rate) * Number(item.qty);
+    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
+  }, 0);
+  const totalPayable = grossCharges + totalTax;
+  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const advance = advanceDepositAmount || 0;
+  let paid = 0;
+  (hmsDatabase.payments || []).forEach(p => paid += Number(p.amount) || 0);
+  const net = Math.round((totalPayable - (advance + netInsuranceApproved + paid)) * 100) / 100;
+
+  let itemsHtml = '';
+  draftInvoiceItems.forEach((item, idx) => {
+    const lineGross = (Number(item.qty) || 1) * (Number(item.rate) || 0);
+    const taxPct = Number(item.taxPercent) || 0;
+    const taxAmt = lineGross * (taxPct / 100);
+    const lineTotal = lineGross + taxAmt;
+    const qtyLabel = item.qtyText || (item.type === 'Stay' ? `${item.qty} Days` : `${item.qty} Unit`);
+
+    itemsHtml += `
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${idx + 1}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">
+          <strong>${escapeHtml(item.name)}</strong>
+          <div style="font-size: 11px; color: #64748b;">${escapeHtml(item.sourceModule || item.provider)}</div>
+        </td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${escapeHtml(qtyLabel)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">₹${Number(item.rate).toFixed(2)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${taxPct}%</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">₹${lineTotal.toFixed(2)}</td>
+      </tr>
+    `;
+  });
+
+  const invoiceHtml = `
+    <div style="font-family: inherit; color: #0f172a; max-width: 800px; margin: 0 auto;">
+      <!-- Hospital Header -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0284c7; padding-bottom: 16px; margin-bottom: 20px;">
+        <div>
+          <div style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px;">ST. JUDE MULTISPECIALTY HOSPITAL</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 2px;">NABH Accredited Tertiary Healthcare Centre • Emergency &amp; Critical Care</div>
+          <div style="font-size: 11px; color: #64748b;">104 Healthcare Boulevard, Medical District • Phone: +91 44 2811 0000</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="display: inline-block; padding: 4px 12px; border-radius: 4px; background: ${finalBillGenerated ? '#d1fae5' : '#e0f2fe'}; color: ${finalBillGenerated ? '#047857' : '#0369a1'}; font-weight: 800; font-size: 13px; text-transform: uppercase;">
+            ${finalBillGenerated ? 'FINAL TAX INVOICE' : 'DRAFT ESTIMATED INVOICE'}
+          </div>
+          <div style="font-size: 12px; font-weight: 700; margin-top: 6px;">Invoice #: <code>${invoiceNum}</code></div>
+          <div style="font-size: 11px; color: #64748b;">Date: ${dateStr}</div>
+        </div>
+      </div>
+
+      <!-- Patient & IPD Meta -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 20px; font-size: 12.5px;">
+        <div>
+          <div><strong>Patient Name:</strong> ${escapeHtml(patient.fullName || 'N/A')}</div>
+          <div><strong>Patient ID (UHID):</strong> ${escapeHtml(patient.patientId || 'N/A')}</div>
+          <div><strong>Admission ID:</strong> ${escapeHtml(patient.admissionId || 'N/A')}</div>
+        </div>
+        <div>
+          <div><strong>Room / Ward:</strong> ${escapeHtml(patient.roomNumber || 'N/A')}</div>
+          <div><strong>Attending Doctor:</strong> ${escapeHtml(patient.attendingDoctor || 'N/A')}</div>
+          <div><strong>TPA / Insurer:</strong> ${escapeHtml(tpaInsuranceState.insurerName)} (${escapeHtml(tpaInsuranceState.policyId)})</div>
+        </div>
+      </div>
+
+      <!-- Itemized Table (Read-Only, No Discount Column) -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #1e293b; color: white;">
+            <th style="padding: 8px; text-align: center; width: 30px;">#</th>
+            <th style="padding: 8px; text-align: left;">Description</th>
+            <th style="padding: 8px; text-align: center; width: 110px;">Qty / Duration</th>
+            <th style="padding: 8px; text-align: right; width: 90px;">Rate (₹)</th>
+            <th style="padding: 8px; text-align: center; width: 60px;">Tax %</th>
+            <th style="padding: 8px; text-align: right; width: 110px;">Amount (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+      </table>
+
+      <!-- Financial Totals -->
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 24px;">
+        <div style="width: 340px; font-size: 12.5px; line-height: 1.8;">
+          <div style="display: flex; justify-content: space-between;"><span>Gross Hospital Charges:</span> <strong>₹${grossCharges.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: #0284c7;"><span>Total Tax (GST):</span> <strong>+₹${totalTax.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 4px; font-size: 14px; font-weight: 700;"><span>Total Payable Amount:</span> <strong>₹${totalPayable.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Advance Deposit Adjusted:</span> <strong>-₹${advance.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Net Insurance Approved:</span> <strong>-₹${netInsuranceApproved.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Payments Received to Date:</span> <strong>-₹${paid.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 6px; margin-top: 4px; font-size: 16px; font-weight: 800; color: ${net <= 0 ? '#047857' : '#be123c'};">
+            <span>NET OUTSTANDING BALANCE:</span>
+            <span>${net <= 0 ? '₹0.00 (CLEAR)' : '₹' + net.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signatures Footer -->
+      <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #cbd5e1; font-size: 11.5px; color: #64748b;">
+        <div>
+          <div>Prepared By: <strong>${escapeHtml(activeStaff.name || 'Chief Billing Officer')}</strong></div>
+          <div>Authorized Billing &amp; Insurance Desk</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="margin-top: 30px; border-top: 1px solid #0f172a; width: 180px; display: inline-block;"></div>
+          <div>Patient / Caregiver Signature</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const printArea = document.getElementById('invoicePrintArea');
+  if (printArea) printArea.innerHTML = invoiceHtml;
+  const modalTitle = document.getElementById('modalInvoiceTitle');
+  if (modalTitle) modalTitle.innerText = finalBillGenerated ? `Final Tax Invoice (${invoiceNum})` : `Draft Patient Invoice (${invoiceNum})`;
+  const modal = document.getElementById('invoicePreviewModal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeInvoiceModal() {
+  const modal = document.getElementById('invoicePreviewModal');
+  if (modal) modal.classList.remove('active');
+}
+
+/**
+ * Quick Action 2: Generate Final Bill
+ */
+function handleGenerateFinalBill() {
+  if (!activeStaff.allowedDepts.includes('billing')) {
+    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can generate official final bills.`);
+    return;
+  }
+
+  finalBillGenerated = true;
+  finalBillInvoiceNo = `INV-2026-FINAL-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  updateOverallBillSummary();
+  alert(`Final Hospital Tax Bill Generated Successfully!\nOfficial Invoice Number: ${finalBillInvoiceNo}\nCharges are now locked for discharge clearance.`);
+}
+
+/**
+ * Quick Action 3: Record Co-pay / New Payment
+ */
+function handleRecordCopayPayment() {
+  const amtInput = document.getElementById('collectPayAmount');
+  if (amtInput) {
+    amtInput.value = tpaInsuranceState.copayAmount > 0 ? tpaInsuranceState.copayAmount : '1000';
+    amtInput.focus();
+    amtInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+/**
+ * Quick Action 4: Initiate Discharge
+ */
+function handleInitiateDischarge() {
+  if (!activeStaff.allowedDepts.includes('billing')) {
+    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can certify financial clearance for discharge.`);
+    return;
+  }
+
+  // Calculate current net balance using strict formula
+  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
+  const totalTax = draftInvoiceItems.reduce((acc, item) => {
+    const lineSubtotal = Number(item.rate) * Number(item.qty);
+    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
+  }, 0);
+  const totalPayable = grossCharges + totalTax;
+  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const advance = advanceDepositAmount || 0;
+  let paid = 0;
+  (hmsDatabase.payments || []).forEach(p => paid += Number(p.amount) || 0);
+  const netBalance = Math.round((totalPayable - (advance + netInsuranceApproved + paid)) * 100) / 100;
+
+  if (netBalance > 0) {
+    alert(`DISCHARGE BLOCKED - PENDING DUES!\n\nPatient has an unpaid outstanding balance of ₹${netBalance.toFixed(2)}.\nPlease collect pending dues or record final settlement before issuing No Dues Clearance.`);
+    handleRecordCopayPayment();
+    return;
+  }
+
+  if (!finalBillGenerated) {
+    handleGenerateFinalBill();
+  }
+
+}
+
+/**
+ * Quick Action 5: Send to TPA
+ */
+function handleSendToTpa() {
+  setTpaPipelineStage('Under Review');
+  alert(`Claim Package Transmitted to ${tpaInsuranceState.insurerName}!\n\nPolicy ID: ${tpaInsuranceState.policyId}\nPre-Auth Request: ₹${tpaInsuranceState.preAuthAmount.toFixed(2)}\nAttached: Itemized Draft Invoice, Diagnostic Reports, and Clinical Ward Transfer Logs.\nPipeline status advanced to: Approval Pending.`);
+}
+
+/**
+ * Receipt Voucher Modal Handler
+ */
+function openReceiptModal(txId) {
+  const p = (hmsDatabase.payments || []).find(item => item.txId === txId) || {
+    txId: txId || 'TXN-991823',
+    date: '13-Aug-2026, 10:30 AM',
+    method: 'UPI (Google Pay)',
+    amount: 10000,
+    status: 'Paid',
+    reference: 'UPI-9876543210'
+  };
+
+  const patient = billingPatientContext || {
+    fullName: 'Eleanor Vance',
+    patientId: 'P-100001',
+    admissionId: billingActiveAdmissionId || 'HMS-2026-8842'
+  };
+
+  const receiptHtml = `
+    <div style="font-family: inherit; color: #0f172a; line-height: 1.6;">
+      <div style="text-align: center; border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="font-size: 18px; font-weight: 800; color: #0f172a;">ST. JUDE MULTISPECIALTY HOSPITAL</div>
+        <div style="font-size: 11px; color: #64748b;">Central Cash Counter &amp; Payment Desk • Official Receipt Voucher</div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 14px;">
+        <div><strong>Receipt Txn ID:</strong> <code>${p.txId}</code></div>
+        <div><strong>Date &amp; Time:</strong> ${formatLedgerDate(p.date || p.date_label)}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-size: 12px; margin-bottom: 16px;">
+        <div><strong>Patient Name:</strong> ${escapeHtml(patient.fullName || 'N/A')}</div>
+        <div><strong>Admission ID:</strong> ${escapeHtml(patient.admissionId || 'N/A')} (UHID: ${escapeHtml(patient.patientId || 'N/A')})</div>
+        <div><strong>Payment Mode:</strong> ${escapeHtml(p.method || 'UPI')}</div>
+        <div><strong>Reference / Payer:</strong> ${escapeHtml(p.reference || p.payer || 'Primary Caregiver')}</div>
+      </div>
+
+      <div style="background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 20px;">
+        <div style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase;">Amount Received</div>
+        <div style="font-size: 26px; font-weight: 800; color: #047857;">₹${(Number(p.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        <div style="font-size: 11px; color: #047857; font-style: italic;">Status: Paid &amp; Reconciled in Hospital System</div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: flex-end; font-size: 11px; color: #64748b; margin-top: 30px;">
+        <div>System Verified • Computer Generated Receipt</div>
+        <div style="text-align: center;">
+          <div style="border-top: 1px solid #0f172a; width: 140px; margin-bottom: 4px;"></div>
+          <div>Authorized Cashier Signature</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('receiptPrintArea').innerHTML = receiptHtml;
+  document.getElementById('receiptVoucherModal').classList.add('active');
+}
+
+function closeReceiptModal() {
+  document.getElementById('receiptVoucherModal').classList.remove('active');
+}
+
+/**
+ * Handle Bill Admission Change & IPD Context Update
+ */
 function handleBillAdmissionChange(isUserAction = false) {
   const admSelect = document.getElementById('billAdmissionSelect');
   const admissionId = admSelect ? admSelect.value : '';
 
   if (admissionId !== lastBillPatientAdmissionId || isUserAction) {
     lastBillPatientAdmissionId = admissionId;
+    billingActiveAdmissionId = admissionId;
+
+    // Lookup patient context
+    const patient = (backendActiveAdmissions || []).find(a => a.admissionId === admissionId || a.patientId === admissionId)
+      || (hmsDatabase.patients || []).find(p => p.admissionId === admissionId || p.patientId === admissionId);
+
+    billingPatientContext = patient;
+
+    // Update Patient Context Chip
+    const chip = document.getElementById('billingPatientChip');
+    if (chip) {
+      if (patient) {
+        chip.innerHTML = `
+          <div><strong>Patient:</strong> ${escapeHtml(patient.fullName)} (${escapeHtml(patient.ageGender || patient.age + ' Y / ' + patient.gender)})</div>
+          <div><strong>UHID:</strong> <code>${escapeHtml(patient.patientId)}</code> | <strong>ADM:</strong> <code>${escapeHtml(patient.admissionId)}</code></div>
+          <div><strong>Current Location:</strong> ${escapeHtml(patient.department || patient.current_dept || 'General')} • <strong>${escapeHtml(patient.roomNumber || patient.room || 'Bed N/A')}</strong></div>
+          <div><strong>Doctor:</strong> ${escapeHtml(patient.attendingDoctor || 'Consultant')}</div>
+        `;
+      } else {
+        chip.innerHTML = `<div style="color: var(--text-secondary); font-style: italic;">Admission ${escapeHtml(admissionId)} loaded.</div>`;
+      }
+    }
+
+    // Reset final bill lock for new patient
+    finalBillGenerated = false;
+    finalBillInvoiceNo = '';
+
+    // 1. Calculate room stay charges from transfer audit logs
+    calculateRoomStayCharges(admissionId);
+
+    // 2. Refresh aggregated draft invoice items
+    refreshAggregatedDraftInvoice(false);
+
+    // 3. Update category state for manual charge box
     updateBillCategoryState();
   }
 }
@@ -4692,19 +6135,9 @@ function handleBillCategoryChange() {
   updateBillCategoryState();
 }
 
-// Ensure Amount field cannot be manually changed when controlled by a configured charge/tariff
-document.getElementById('billAmount')?.addEventListener('keydown', e => {
-  if (e.target.readOnly) {
-    e.preventDefault();
-  }
-});
-document.getElementById('billAmount')?.addEventListener('paste', e => {
-  if (e.target.readOnly) {
-    e.preventDefault();
-  }
-});
+// Preserve backwards-compatible alias for Room Rent callers (already defined above)
 
-// DEPARTMENT 5: BILLING HANDLER (Req 6)
+// DEPARTMENT 5: BILLING HANDLER (Req 6 - Add Custom Charge Form)
 function handleAddBillItem() {
   if (!activeStaff.allowedDepts.includes('billing')) {
     alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can add hospital charges. Please switch staff account.`);
@@ -4716,21 +6149,18 @@ function handleAddBillItem() {
   const categoryEl = document.getElementById('billCategory');
   const amountEl = document.getElementById('billAmount');
 
-  // Validate dropdown placeholders (Req 6)
   if (!admSelect || !admSelect.value) {
-    alert('Please select an active patient / admission for this charge. Unselected placeholders are not permitted.');
+    alert('Please select an active patient / admission for this charge.');
     admSelect?.focus();
     return;
   }
   if (!categoryEl || !categoryEl.value) {
-    alert('Please select a charge category. Unselected placeholders are not permitted.');
+    alert('Please select a charge category.');
     categoryEl?.focus();
     return;
   }
 
   const category = categoryEl.value;
-
-  // Validate that a valid tariff/charge exists
   if (!amountEl.value || parseFloat(amountEl.value) <= 0) {
     alert(`Cannot add ${category} charge: Tariff is not configured for this patient's ${category}. Please contact an administrator.`);
     return;
@@ -4746,7 +6176,7 @@ function handleAddBillItem() {
   const desc = descEl.value.trim();
   const amount = parseFloat(amountEl.value);
 
-  // Send to backend (backend validates and uses authoritative tariff)
+  // Send to backend
   fetch(`${HMS_API_BASE}/api/hms/billing/items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -4762,11 +6192,14 @@ function handleAddBillItem() {
     hmsDatabase.billing.totalBill += finalAmount;
     hmsDatabase.billing.remainingPayable = hmsDatabase.billing.totalBill - hmsDatabase.billing.insuranceCovered;
 
+    // Refresh draft invoice table with newly pushed charge
+    refreshAggregatedDraftInvoice(false);
     renderPaymentLedger();
     await loadHmsDatabase();
+
     alert(`Hospital charge of ₹${finalAmount.toFixed(2)} added for admission ${admissionId}!\nTotal Bill: ₹${hmsDatabase.billing.totalBill.toFixed(2)}`);
 
-    // Reset category, description, and amount cleanly
+    // Reset form cleanly
     if (categoryEl) categoryEl.value = '';
     if (descEl) {
       descEl.value = '';
@@ -4787,49 +6220,27 @@ function handleAddBillItem() {
     }
   }).catch(e => {
     console.error('Failed to add bill item:', e);
-    alert('Failed to add charge: ' + e.message);
+    // Add locally to draft invoice if offline
+    let bType = 'Service';
+    if (category === 'Room Rent') bType = 'Stay';
+    else if (category === 'Diagnostics') bType = 'Lab';
+    else if (category === 'Pharmacy') bType = 'Pharmacy';
+
+    draftInvoiceItems.push({
+      id: `CUSTOM-${Date.now()}`,
+      type: bType,
+      name: desc,
+      provider: 'Billing Desk',
+      qty: 1,
+      rate: amount,
+      discount: 0,
+      taxPercent: 0,
+      amount: amount
+    });
+    renderDraftInvoiceTable();
+    updateOverallBillSummary();
+    alert(`Hospital charge of ₹${amount.toFixed(2)} added to Draft Invoice!`);
   });
-}
-
-function handleUpdateInsuranceStatus() {
-  if (!activeStaff.allowedDepts.includes('billing')) {
-    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can update insurance claim status. Please switch staff account.`);
-    return;
-  }
-
-  const select = document.getElementById('insuranceClaimStatusSelect');
-  if (!select || !select.value) {
-    alert('Please select an insurance claim status. Unselected placeholders are not permitted.');
-    select?.focus();
-    return;
-  }
-
-  const status = select.value;
-  hmsDatabase.billing.claimStatus = status;
-  saveHmsDatabase();
-  alert(`Cashless Insurance Claim status updated to: ${status}`);
-}
-
-function renderPaymentLedger() {
-  const tbody = document.getElementById('paymentLedgerTbody');
-  if (!tbody) return;
-
-  let html = '';
-  hmsDatabase.payments.forEach(p => {
-    html += `
-      <tr>
-        <td><code>${p.txId}</code></td>
-        <td>${p.date}</td>
-        <td>${p.method}</td>
-        <td><strong style="color: var(--emerald-success);">₹${p.amount.toFixed(2)}</strong></td>
-        <td><span class="badge badge-success">${p.status}</span></td>
-      </tr>
-    `;
-  });
-  tbody.innerHTML = html;
-
-  const statBill = document.getElementById('statBillBalance');
-  if (statBill) statBill.innerText = `₹${hmsDatabase.billing.remainingPayable.toFixed(2)}`;
 }
 
 // DEPARTMENT 6: DATABASE INSPECTOR HANDLER

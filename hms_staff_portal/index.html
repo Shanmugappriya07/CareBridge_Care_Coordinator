@@ -29,15 +29,23 @@
       </div>
     </div>
 
-    <div class="staff-user-badge" id="staffUserBadge">
+    <div class="staff-user-badge" id="staffUserBadge" style="display: flex; align-items: center; gap: 8px;">
       <i class="fa-solid fa-user-doctor" style="color: var(--cyan-light);" id="staffUserIcon"></i>
-      <span>Logged in:</span>
+      <span>Logged in: <strong id="staffUserName" style="color: white;">Admin</strong></span>
+      <select id="quickStaffSwitchSelect" class="form-control" style="width: auto; padding: 3px 8px; font-size: 11px; height: 28px; background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; cursor: pointer;" onchange="quickSwitchStaffAccount(this.value)" title="Quick switch staff role">
+        <option value="admin" style="color: #0f172a;">Admin (All Modules)</option>
+        <option value="billing" style="color: #0f172a;">Billing Officer</option>
+        <option value="reception" style="color: #0f172a;">Receptionist</option>
+        <option value="nurse" style="color: #0f172a;">Duty Nurse</option>
+        <option value="doctor" style="color: #0f172a;">Chief Cardiologist</option>
+        <option value="laboratory" style="color: #0f172a;">Chief Pathologist</option>
+        <option value="pharmacy" style="color: #0f172a;">Chief Pharmacist</option>
+      </select>
       <button class="btn btn-outline"
-        style="padding: 4px 10px; font-size: 11px; margin-left: 8px; color: white; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.1);"
-        onclick="openStaffLoginModal()">
-        <i class="fa-solid fa-arrows-rotate"></i> Switch Staff Account
+        style="padding: 4px 8px; font-size: 11px; color: white; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.1);"
+        onclick="logoutHmsStaff()" title="Sign Out">
+        <i class="fa-solid fa-right-from-bracket"></i> Sign Out
       </button>
-      <!-- <span class="badge badge-success" style="margin-left: 8px;">Database Connected</span> -->
     </div>
   </header>
 
@@ -1223,95 +1231,368 @@
 
       <!-- DEPARTMENT 5: BILLING & INSURANCE DESK -->
       <section id="dept-billing" class="dept-view">
-        <div class="grid-2col">
+        <div class="billing-layout-grid">
 
-          <!-- Add Hospital Itemized Charge -->
-          <div class="card-panel">
-            <div class="panel-header">
-              <span class="panel-title"><i class="fa-solid fa-calculator" style="color: var(--cyan-primary);"></i> Add
-                Itemized Hospital Charge</span>
-              <span class="badge badge-info">Billing Officer</span>
-            </div>
+          <!-- ========================================== -->
+          <!-- LEFT COLUMN: Patient & Cashless Insurance  -->
+          <!-- ========================================== -->
+          <div class="billing-col-left">
 
-            <form id="addBillItemForm" onsubmit="event.preventDefault(); handleAddBillItem();">
-              <div class="form-group">
-                <label class="form-label" for="billAdmissionSelect">Patient / Admission</label>
-                <select id="billAdmissionSelect" class="form-control" required
-                  onchange="handleBillAdmissionChange(true)">
+            <!-- 1. Patient / Admission Selector -->
+            <div class="card-panel" style="margin-bottom: 16px;">
+              <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-hospital-user" style="color: var(--cyan-primary);"></i> Patient / IPD Context</span>
+                <span class="badge badge-info">Billing Desk</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label class="form-label" for="billAdmissionSelect">Active Admission</label>
+                <select id="billAdmissionSelect" class="form-control" required onchange="handleBillAdmissionChange(true)">
                   <option value="" disabled selected>Select Patient / Admission</option>
                 </select>
               </div>
 
-              <div class="form-group">
-                <label class="form-label" for="billDesc">Charge Description</label>
-                <input type="text" id="billDesc" class="form-control"
-                  placeholder="Select category &amp; patient to auto-fill description" required>
+              <div id="billingPatientChip" class="billing-patient-chip">
+                <div style="color: var(--text-secondary); font-style: italic;">Select a patient above to load IPD audit trail &amp; charges.</div>
+              </div>
+            </div>
+
+            <!-- 2. Cashless Insurance & TPA Claim Pipeline Card -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title" style="font-size: 15px;"><i class="fa-solid fa-shield-halved" style="color: var(--cyan-primary);"></i> Cashless Insurance &amp; TPA</span>
+                <span id="tpaBadgeStatus" class="badge badge-warning">Approval Pending</span>
               </div>
 
-              <div class="grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="billCategory">Category</label>
-                  <select id="billCategory" class="form-control" required onchange="handleBillCategoryChange()">
-                    <option value="" disabled selected>Select Category</option>
-                    <option value="Room Rent">Room Rent</option>
-                    <option value="Consultation">Consultation</option>
-                    <option value="Pharmacy">Pharmacy</option>
-                    <option value="Diagnostics">Diagnostics</option>
-                    <option value="Procedures">Procedures</option>
-                  </select>
+              <!-- Visual Pipeline Status Bar -->
+              <div class="tpa-pipeline-steps" id="tpaPipelineContainer">
+                <button type="button" class="tpa-step completed" onclick="setTpaPipelineStage('Submitted')" title="Step 1: Claim Submitted">
+                  <div class="tpa-step-icon"><i class="fa-solid fa-file-arrow-up"></i></div>
+                  <div class="tpa-step-label">Submitted</div>
+                </button>
+                <button type="button" class="tpa-step active" onclick="setTpaPipelineStage('Under Review')" title="Step 2: Approval Pending">
+                  <div class="tpa-step-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+                  <div class="tpa-step-label">Approval Pending</div>
+                </button>
+                <button type="button" class="tpa-step pending" onclick="setTpaPipelineStage('Approved')" title="Step 3: Co-pay Pending">
+                  <div class="tpa-step-icon"><i class="fa-solid fa-coins"></i></div>
+                  <div class="tpa-step-label">Co-pay Pending</div>
+                </button>
+                <button type="button" class="tpa-step pending" onclick="setTpaPipelineStage('Settled')" title="Step 4: Finalized">
+                  <div class="tpa-step-icon"><i class="fa-solid fa-circle-check"></i></div>
+                  <div class="tpa-step-label">Finalized</div>
+                </button>
+              </div>
+
+              <!-- TPA Pipeline Fields -->
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label class="form-label" for="tpaInsurerSelect">TPA / Insurer Name</label>
+                <select id="tpaInsurerSelect" class="form-control" onchange="handleTpaFieldChange()">
+                  <option value="Star Health and Allied Insurance">Star Health and Allied Insurance</option>
+                  <option value="HDFC ERGO General Insurance">HDFC ERGO General Insurance</option>
+                  <option value="ICICI Lombard Health Care">ICICI Lombard Health Care</option>
+                  <option value="Medi Assist Insurance TPA">Medi Assist Insurance TPA</option>
+                  <option value="Paramount Health Services TPA">Paramount Health Services TPA</option>
+                  <option value="Vidal Health Insurance TPA">Vidal Health Insurance TPA</option>
+                  <option value="Care Health Insurance (Religare)">Care Health Insurance (Religare)</option>
+                  <option value="Niva Bupa Health Insurance">Niva Bupa Health Insurance</option>
+                  <option value="New India Assurance TPA">New India Assurance TPA</option>
+                </select>
+              </div>
+
+              <div class="grid-2col" style="gap: 10px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" for="tpaPolicyId">Policy ID</label>
+                  <input type="text" id="tpaPolicyId" class="form-control" value="POL-8842-STAR" onchange="handleTpaFieldChange()">
                 </div>
-                <div class="form-group">
-                  <label class="form-label" for="billAmount">Amount (₹)</label>
-                  <input type="number" id="billAmount" class="form-control" placeholder="0.00" step="0.01" min="0"
-                    required>
-                  <div id="billRoomRentHelper"
-                    style="display: none; font-size: 11px; margin-top: 5px; line-height: 1.4;"></div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" for="tpaAuthId">Claim / Pre-Auth ID</label>
+                  <input type="text" id="tpaAuthId" class="form-control" value="AUTH-2026-99214" onchange="handleTpaFieldChange()">
                 </div>
               </div>
 
-              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
-                <i class="fa-solid fa-plus-circle"></i> Add Charge &amp; Recalculate Balance
-              </button>
-            </form>
+              <div class="grid-3col" style="gap: 8px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" for="tpaPreAuthAmount" style="font-size: 11px;">Pre-Auth (₹)</label>
+                  <input type="number" id="tpaPreAuthAmount" class="form-control" value="50000" step="100" oninput="handleTpaFieldChange()">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" for="tpaApprovedAmount" style="font-size: 11px;">Approved (₹)</label>
+                  <input type="number" id="tpaApprovedAmount" class="form-control" value="50000" step="100" oninput="handleTpaFieldChange()">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" for="tpaCopayAmount" style="font-size: 11px;">Co-pay (₹)</label>
+                  <input type="number" id="tpaCopayAmount" class="form-control" value="5000" step="100" oninput="handleTpaFieldChange()">
+                </div>
+              </div>
 
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
+              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 10px; font-size: 11.5px; margin-bottom: 10px; color: #166534;">
+                <strong>Net Insurance Approved:</strong> <span id="tpaNetApprovedDisplay">₹45,000.00</span>
+                <div style="font-size: 10.5px; color: #15803d;">(Approved Amount - Co-pay Amount)</div>
+              </div>
 
-            <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px;">Cashless Insurance Claim Approval
-              Pipeline</div>
-            <div style="display: flex; gap: 8px;">
-              <select id="insuranceClaimStatusSelect" class="form-control" required>
-                <option value="" disabled selected>Select Claim Status</option>
+              <!-- Hidden backwards-compatible selector -->
+              <select id="insuranceClaimStatusSelect" style="display: none;">
                 <option value="Submitted">1. Submitted</option>
-                <option value="Under Review">2. Under Review</option>
+                <option value="Under Review" selected>2. Under Review</option>
                 <option value="Approved">3. Approved (₹50,000)</option>
                 <option value="Settled">4. Settled (Discharge Clearance)</option>
               </select>
-              <button class="btn btn-success" onclick="handleUpdateInsuranceStatus()">Update</button>
+
+              <button type="button" class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="handleUpdateInsuranceStatus()">
+                <i class="fa-solid fa-arrows-rotate"></i> Update Claim Status &amp; Apply
+              </button>
             </div>
+
           </div>
 
-          <!-- Caregiver Payment Ledger -->
-          <div class="card-panel">
-            <div class="panel-header">
-              <span class="panel-title"><i class="fa-solid fa-receipt" style="color: var(--cyan-primary);"></i>
-                Caregiver Payment Reconciliation Ledger</span>
-              <span class="badge badge-success">Real-time Payments</span>
+          <!-- ======================================================= -->
+          <!-- CENTER COLUMN: Draft Invoice Table & Reconciliation Ledger -->
+          <!-- ======================================================= -->
+          <div class="billing-col-center">
+
+            <!-- 1. Draft Invoice Table (Read-only, Room charges automatically injected) -->
+            <div class="card-panel" style="margin-bottom: 20px;">
+              <div class="panel-header">
+                <span class="panel-title">
+                  <i class="fa-solid fa-file-invoice-dollar" style="color: var(--cyan-primary);"></i>
+                  Aggregated Draft Invoice
+                </span>
+                <div style="display: flex; gap: 8px;">
+                  <span class="badge badge-info"><i class="fa-solid fa-lock"></i> Read-Only Audit Integrity</span>
+                  <button type="button" class="btn btn-outline" style="font-size: 11.5px; padding: 4px 10px;" onclick="refreshAggregatedDraftInvoice(true)">
+                    <i class="fa-solid fa-rotate"></i> Sync Modules
+                  </button>
+                </div>
+              </div>
+
+              <div class="draft-table-wrapper">
+                <table class="draft-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 90px;">Type</th>
+                      <th>Item Name</th>
+                      <th>Doctor / Provider</th>
+                      <th style="width: 110px; text-align: center;">Qty / Duration</th>
+                      <th style="width: 95px; text-align: right;">Rate (₹)</th>
+                      <th style="width: 65px; text-align: center;">Tax %</th>
+                      <th style="width: 105px; text-align: right;">Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="draftInvoiceTbody">
+                    <!-- Dynamically populated from all modules -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Draft Subtotal Summary Panel (Gross, Tax, Total Payable) -->
+              <div class="draft-subtotal-panel">
+                <div class="draft-subtotal-item">
+                  <span class="sub-lbl">Total Gross Charges</span>
+                  <span id="draftGrossAmount" class="sub-val">₹0.00</span>
+                </div>
+                <div class="draft-subtotal-item">
+                  <span class="sub-lbl">Total Tax</span>
+                  <span id="draftTaxAmount" class="sub-val" style="color: var(--cyan-primary);">+₹0.00</span>
+                </div>
+                <div class="draft-subtotal-item total-payable">
+                  <span class="sub-lbl">Total Payable</span>
+                  <span id="draftPayableAmount" class="sub-val">₹0.00</span>
+                </div>
+              </div>
             </div>
 
-            <table class="hms-table">
-              <thead>
-                <tr>
-                  <th>Txn ID</th>
-                  <th>Date</th>
-                  <th>Mode</th>
-                  <th>Amount</th>
-                  <th>Receipt</th>
-                </tr>
-              </thead>
-              <tbody id="paymentLedgerTbody">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
+            <!-- 2. Caregiver Payment Reconciliation Ledger & Simplified Counter Payment Widget -->
+            <div class="card-panel">
+              <div class="panel-header">
+                <span class="panel-title">
+                  <i class="fa-solid fa-receipt" style="color: var(--cyan-primary);"></i>
+                  Payment &amp; Reconciliation Ledger
+                </span>
+                <span class="badge badge-success"><i class="fa-solid fa-bolt"></i> Real-time Ledger</span>
+              </div>
+
+              <div class="table-responsive" style="overflow-x: auto; margin-bottom: 16px;">
+                <table class="hms-table">
+                  <thead>
+                    <tr>
+                      <th>Txn ID</th>
+                      <th>Date &amp; Time</th>
+                      <th>Payment Mode</th>
+                      <th>Payer / Caregiver</th>
+                      <th style="text-align: right;">Amount (₹)</th>
+                      <th style="text-align: center;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="paymentLedgerTbody">
+                    <!-- Dynamically populated with clean timestamps -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Simplified Collect Counter Payment Widget (3 fields only) -->
+              <div class="payment-collect-box">
+                <div style="font-size: 13.5px; font-weight: 700; color: var(--navy-dark); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-hand-holding-dollar" style="color: var(--emerald-success);"></i>
+                  Collect Counter Payment
+                </div>
+
+                <div class="payment-mode-radios">
+                  <label class="payment-mode-label">
+                    <input type="radio" name="collectPayMode" value="UPI / NetBanking" checked>
+                    <span><i class="fa-solid fa-qrcode"></i> UPI / NetBanking</span>
+                  </label>
+                  <label class="payment-mode-label">
+                    <input type="radio" name="collectPayMode" value="Card">
+                    <span><i class="fa-solid fa-credit-card"></i> Card</span>
+                  </label>
+                  <label class="payment-mode-label">
+                    <input type="radio" name="collectPayMode" value="Cash">
+                    <span><i class="fa-solid fa-money-bill-wave"></i> Cash</span>
+                  </label>
+                </div>
+
+                <div class="grid-2col" style="gap: 12px; margin-bottom: 12px;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" for="collectPayPayer">Payer / Caregiver Name</label>
+                    <input type="text" id="collectPayPayer" class="form-control" placeholder="Enter Payer Name" required>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" for="collectPayAmount">Amount to be Paid (₹)</label>
+                    <input type="number" id="collectPayAmount" class="form-control" placeholder="₹0.00" step="0.01" min="1" required>
+                  </div>
+                </div>
+
+                <button type="button" id="btnProcessPayment" class="btn btn-success" style="width: 100%; justify-content: center; font-weight: 700; padding: 10px;" onclick="handleCollectPayment()">
+                  <i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance
+                </button>
+                <div id="collectPaymentAlert" style="display: none; margin-top: 10px; padding: 10px 14px; border-radius: 6px; font-size: 12.5px; font-weight: 600; transition: all 0.2s ease;"></div>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- ======================================================== -->
+          <!-- RIGHT COLUMN: Overall Bill Summary, Checklist & Actions  -->
+          <!-- ======================================================== -->
+          <div class="billing-col-right sticky-bill-summary">
+
+            <!-- 1. Overall Bill Summary Card -->
+            <div class="card-panel" style="margin-bottom: 16px;">
+              <div class="panel-header">
+                <span class="panel-title" style="font-size: 16px;"><i class="fa-solid fa-scale-balanced" style="color: var(--cyan-primary);"></i> Overall Bill Summary</span>
+                <span class="badge badge-info" id="billStatusTag">Live Balance</span>
+              </div>
+
+              <div class="metric-row">
+                <span class="metric-label"><i class="fa-solid fa-list-ol"></i> Gross Charges</span>
+                <span id="summaryGrossCharges" class="metric-value">₹0.00</span>
+              </div>
+
+              <div class="metric-row">
+                <span class="metric-label"><i class="fa-solid fa-percent"></i> Total Tax (GST)</span>
+                <span id="summaryTotalTax" class="metric-value" style="color: var(--cyan-primary);">+₹0.00</span>
+              </div>
+
+              <div class="metric-row" style="background: #f8fafc; margin: 4px -8px; padding: 8px; border-radius: 4px;">
+                <span class="metric-label" style="font-weight: 700; color: var(--navy-dark);"><i class="fa-solid fa-calculator"></i> Total Payable</span>
+                <span id="summaryTotalPayable" class="metric-value" style="color: var(--navy-dark); font-size: 15px;">₹0.00</span>
+              </div>
+
+              <div class="metric-row deduction">
+                <span class="metric-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                  <span><i class="fa-solid fa-wallet"></i> Advanced Deposit Paid</span>
+                  <a href="javascript:void(0)" onclick="promptAdjustAdvanceDeposit()" style="font-size: 10.5px; color: var(--cyan-primary); text-decoration: underline;">Adjust</a>
+                </span>
+                <span id="summaryAdvanceDeposit" class="metric-value">-₹0.00</span>
+              </div>
+
+              <div class="metric-row deduction">
+                <span class="metric-label"><i class="fa-solid fa-shield-check"></i> Net Insurance Approved</span>
+                <span id="summaryInsuranceApproved" class="metric-value">-₹0.00</span>
+              </div>
+
+              <div class="metric-row deduction">
+                <span class="metric-label"><i class="fa-solid fa-money-check-dollar"></i> Payments Received</span>
+                <span id="summaryPaymentsReceived" class="metric-value">-₹0.00</span>
+              </div>
+
+              <!-- Prominently Highlighted Net Outstanding Balance -->
+              <div id="netBalanceBanner" class="net-balance-banner clear">
+                <div class="net-balance-title">Net Outstanding Balance</div>
+                <div id="summaryNetBalance" class="net-balance-amount">₹0.00</div>
+                <div id="netBalanceBadge">
+                  <span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> Clear / No Dues</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- 2. Dynamic Discharge Checklist -->
+            <div class="card-panel" style="margin-bottom: 16px;">
+              <div class="panel-header" style="padding-bottom: 8px; margin-bottom: 8px;">
+                <span class="panel-title" style="font-size: 14px;"><i class="fa-solid fa-list-check" style="color: var(--cyan-primary);"></i> Discharge Financial Checklist</span>
+              </div>
+
+              <div class="checklist-list">
+                <div id="chk-item-charges" class="checklist-item passed">
+                  <div class="checklist-icon"><i class="fa-solid fa-check"></i></div>
+                  <div class="checklist-text">All Charges Added</div>
+                  <span id="chk-status-charges" class="badge badge-success" style="font-size: 10px;">Synced</span>
+                </div>
+
+                <div id="chk-item-advance" class="checklist-item passed">
+                  <div class="checklist-icon"><i class="fa-solid fa-check"></i></div>
+                  <div class="checklist-text">Advance Deposits Adjusted</div>
+                  <span id="chk-status-advance" class="badge badge-success" style="font-size: 10px;">Applied</span>
+                </div>
+
+                <div id="chk-item-finalbill" class="checklist-item failed">
+                  <div class="checklist-icon"><i class="fa-solid fa-xmark"></i></div>
+                  <div class="checklist-text">Final Bill Generated</div>
+                  <span id="chk-status-finalbill" class="badge badge-warning" style="font-size: 10px;">Draft Pending</span>
+                </div>
+
+                <div id="chk-item-insurance" class="checklist-item passed">
+                  <div class="checklist-icon"><i class="fa-solid fa-check"></i></div>
+                  <div class="checklist-text">Insurance Settlement Approved</div>
+                  <span id="chk-status-insurance" class="badge badge-success" style="font-size: 10px;">Approved</span>
+                </div>
+
+                <div id="chk-item-nodues" class="checklist-item passed">
+                  <div class="checklist-icon"><i class="fa-solid fa-check"></i></div>
+                  <div class="checklist-text">Patient No Dues Clearance</div>
+                  <span id="chk-status-nodues" class="badge badge-success" style="font-size: 10px;">No Dues</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Quick Action Buttons Panel -->
+            <div class="card-panel">
+              <div class="panel-header" style="padding-bottom: 8px; margin-bottom: 8px;">
+                <span class="panel-title" style="font-size: 14px;"><i class="fa-solid fa-bolt" style="color: var(--amber-warning);"></i> Quick Action Desk</span>
+              </div>
+
+              <div class="quick-actions-grid">
+                <button type="button" class="quick-action-btn btn-quick-print" onclick="handlePrintDraftInvoice()">
+                  <i class="fa-solid fa-print"></i> Print Draft Invoice
+                </button>
+                <button type="button" class="quick-action-btn btn-quick-final" onclick="handleGenerateFinalBill()">
+                  <i class="fa-solid fa-file-shield"></i> Generate Final Bill
+                </button>
+                <button type="button" class="quick-action-btn btn-quick-pay" onclick="handleRecordCopayPayment()">
+                  <i class="fa-solid fa-coins"></i> Record Co-pay / New Payment
+                </button>
+                <button type="button" class="quick-action-btn btn-quick-discharge" onclick="handleInitiateDischarge()">
+                  <i class="fa-solid fa-door-open"></i> Initiate Discharge
+                </button>
+                <button type="button" class="quick-action-btn btn-quick-tpa" onclick="handleSendToTpa()">
+                  <i class="fa-solid fa-paper-plane"></i> Send to TPA
+                </button>
+              </div>
+            </div>
+
           </div>
 
         </div>
@@ -1536,7 +1817,57 @@
         </div>
       </form>
     </div>
+  <!-- ============================================== -->
+  <!-- BILLING MODALS: INVOICE, RECEIPT & LINE ITEM   -->
+  <!-- ============================================== -->
+
+  <!-- 1. Invoice Print / Preview Modal -->
+  <div id="invoicePreviewModal" class="hms-custom-modal" role="dialog" aria-modal="true">
+    <div class="hms-custom-modal-card" style="max-width: 840px;">
+      <div class="hms-modal-header">
+        <span class="panel-title" style="color: white; font-size: 16px;">
+          <i class="fa-solid fa-file-invoice"></i> <span id="modalInvoiceTitle">Draft Patient Invoice</span>
+        </span>
+        <button type="button" class="btn btn-outline" style="color: white; border-color: rgba(255,255,255,0.3); padding: 4px 10px;" onclick="closeInvoiceModal()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="hms-modal-body" id="invoicePrintArea" style="background: white; color: #0f172a; padding: 24px;">
+        <!-- Dynamically generated invoice content -->
+      </div>
+      <div class="hms-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeInvoiceModal()">Close</button>
+        <button type="button" class="btn btn-primary" style="background: #0284c7; color: white;" onclick="window.print()">
+          <i class="fa-solid fa-print"></i> Print Invoice
+        </button>
+      </div>
+    </div>
   </div>
+
+  <!-- 2. Payment Receipt Voucher Modal -->
+  <div id="receiptVoucherModal" class="hms-custom-modal" role="dialog" aria-modal="true">
+    <div class="hms-custom-modal-card" style="max-width: 600px;">
+      <div class="hms-modal-header">
+        <span class="panel-title" style="color: white; font-size: 16px;">
+          <i class="fa-solid fa-receipt"></i> Payment Receipt Voucher
+        </span>
+        <button type="button" class="btn btn-outline" style="color: white; border-color: rgba(255,255,255,0.3); padding: 4px 10px;" onclick="closeReceiptModal()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="hms-modal-body" id="receiptPrintArea" style="background: white; color: #0f172a; padding: 20px;">
+        <!-- Dynamically generated receipt content -->
+      </div>
+      <div class="hms-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeReceiptModal()">Close</button>
+        <button type="button" class="btn btn-success" onclick="window.print()">
+          <i class="fa-solid fa-print"></i> Print Receipt
+        </button>
+      </div>
+    </div>
+  </div>
+
+
 
 
   <script src="validation.js"></script>

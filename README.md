@@ -19,7 +19,7 @@ It integrates directly with the **St. Jude Hospital Management System (HMS) Staf
 - **Billing & Cashless Insurance Desk**: Add itemized hospital charges, manage cashless mediclaim approvals, and view live caregiver payment reconciliations.
 - **Live Database Inspector**: Real-time view of all 13 MySQL relational tables in `carebridge_db`.
 
-### 2. CareBridge Caregiver Companion App (`carebridge_app` & `carebridge_web_preview`)
+### 2. CareBridge Caregiver Companion App (`carebridge_app`)
 - **App Launch OTP Onboarding**: Phone OTP authentication on startup for first-time registration and session activation.
 - **Patient Tracking Banner**: Explicitly displays the admitted patient's details (Name, Patient ID: `PAT-8842-EV`, Age: 58, Phone: `+91 98111 22334`, Admission ID: `HMS-2026-8842`).
 - **Role-Based Access Control (RBAC)**:
@@ -33,7 +33,6 @@ It integrates directly with the **St. Jude Hospital Management System (HMS) Staf
 ## 📁 Repository Structure
 
 ```
-scratch/
 ├── hms_staff_portal/             # HMS Hospital Staff Administrative Web Portal
 │   ├── index.html                # Department Switcher Console (Reception, Doctor, Lab, Pharmacy, Billing)
 │   ├── styles.css                # Clinical Material Design 3 Styling
@@ -45,22 +44,10 @@ scratch/
 │   │   └── features/             # Feature Modules (Auth, Dashboard, Timeline, Reports, Pharmacy, Billing, Insurance, Map, Family)
 │   └── pubspec.yaml
 │
-├── carebridge_backend/           # Spring Boot REST API Service
-│   ├── src/main/java/com/carebridge/api/
-│   │   ├── config/               # SecurityConfig, OpenApiConfig
-│   │   ├── controller/           # PatientController, BillingController, HmsStaffController, etc.
-│   │   └── CareBridgeApiApplication.java
-│   ├── src/main/resources/
-│   │   ├── application.yml
-│   │   ├── schema.sql            # DDL Script for 13 MySQL Tables with Foreign Keys & Indexes
-│   │   └── data.sql              # Initial Seed Dataset for Eleanor Vance (Admission: HMS-2026-8842)
-│   ├── openapi.yaml              # Complete OpenAPI 3.0 Specification
-│   └── pom.xml
-│
-└── carebridge_web_preview/       # Zero-Dependency Runnable Web Preview
-    ├── index.html
-    ├── styles.css
-    └── app.js
+└── carebridge_backend/           # REST API & WebSocket Backend Service
+    ├── server.js                 # Express + MySQL REST API & HMS static server
+    ├── mysql_schema.sql          # MySQL Database Schema DDL
+    └── package.json
 ```
 
 ---
@@ -79,19 +66,20 @@ cp .env.example .env   # edit if your MySQL creds differ
 npm install
 npm start
 
-# 3. Run the HMS Staff Web Portal (port 8086)
+# 3. Run the HMS Staff Web Portal (port 8085)
 cd ../hms_staff_portal
-python -m http.server 8086
-
-# 4. Run the CareBridge web preview (port 8085)
-cd ../carebridge_web_preview
 python -m http.server 8085
+
+# 4. Run the CareBridge Mobile App (Flutter)
+cd ../carebridge_app
+flutter pub get
+flutter run
 ```
-- **HMS Staff Web Console**: `http://localhost:8086`
-- **CareBridge Caregiver Web Demo**: `http://localhost:8085`
+- **HMS Staff Web Console**: `http://localhost:8085`
+- **CareBridge Mobile App**: Runs in Android Emulator, iOS Simulator, or connected phone
 - **Backend health check**: `http://localhost:8080/api/health`
 
-Opening the HMS portal or CareBridge from a phone or a different PC than
+Opening the HMS portal from a phone or a different PC than
 the backend? Edit the `HMS_API_BASE` constant near the top of `hms_app.js`
 / `app.js` to that PC's LAN IP instead of `localhost`.
 
