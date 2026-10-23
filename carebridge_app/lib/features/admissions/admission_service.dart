@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -16,36 +17,74 @@ import '../notifications/notification_model.dart';
 class AdmissionService {
   static const _timeout = Duration(seconds: 15);
 
+  static Future<({bool ok, String message})> testConnection([String? customUrl]) async {
+    final base = (customUrl ?? AppConstants.apiBaseUrl).trim().replaceAll(RegExp(r'/+$'), '');
+    try {
+      final healthUri = Uri.parse(base.endsWith('/v1')
+          ? base.replaceFirst(RegExp(r'/api/v1$'), '/api/health')
+          : '$base/health');
+      final response = await http.get(healthUri).timeout(const Duration(seconds: 4));
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return (ok: true, message: 'Backend reachable and responsive');
+      }
+      return (ok: false, message: 'Server returned HTTP ${response.statusCode}');
+    } catch (e) {
+      return (ok: false, message: '$e');
+    }
+  }
+
   static Future<({bool developmentOnly, String? otp})> sendOtp(
       String mobile) async {
-    final response = await http
-        .post(
-          Uri.parse('${AppConstants.apiBaseUrl}/auth/send-otp'),
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({'mobile': mobile}),
-        )
-        .timeout(_timeout);
-    _ensureSuccess(response);
-    
-    final decoded = jsonDecode(response.body);
-    if (decoded is Map) {
-      return (
-        developmentOnly: decoded['developmentOnly'] == true,
-        otp: decoded['otp']?.toString(),
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${AppConstants.apiBaseUrl}/auth/send-otp'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'mobile': mobile}),
+          )
+          .timeout(_timeout);
+      _ensureSuccess(response);
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) {
+        return (
+          developmentOnly: decoded['developmentOnly'] == true,
+          otp: decoded['otp']?.toString(),
+        );
+      }
+      return (developmentOnly: false, otp: null);
+    } on TimeoutException {
+      throw AdmissionApiException(
+        'Connection timed out after 15s reaching ${AppConstants.apiBaseUrl}. Ensure the backend server is running and accessible from this device.',
+      );
+    } catch (e) {
+      if (e is AdmissionApiException) rethrow;
+      throw AdmissionApiException(
+        'Could not reach server at ${AppConstants.apiBaseUrl}: $e',
       );
     }
-    return (developmentOnly: false, otp: null);
   }
 
   static Future<void> verifyOtp(String mobile, String otp) async {
-    final response = await http
-        .post(
-          Uri.parse('${AppConstants.apiBaseUrl}/auth/verify-otp'),
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({'mobile': mobile, 'otp': otp}),
-        )
-        .timeout(_timeout);
-    _ensureSuccess(response);
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${AppConstants.apiBaseUrl}/auth/verify-otp'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'mobile': mobile, 'otp': otp}),
+          )
+          .timeout(_timeout);
+      _ensureSuccess(response);
+    } on TimeoutException {
+      throw AdmissionApiException(
+        'Connection timed out after 15s reaching ${AppConstants.apiBaseUrl}. Ensure the backend server is running and accessible from this device.',
+      );
+    } catch (e) {
+      if (e is AdmissionApiException) rethrow;
+      throw AdmissionApiException(
+        'Could not reach server at ${AppConstants.apiBaseUrl}: $e',
+      );
+    }
   }
 
   static Future<List<Admission>> getAdmissions(String mobile) async {

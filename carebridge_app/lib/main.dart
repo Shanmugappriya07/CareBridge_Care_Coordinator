@@ -22,6 +22,8 @@ import 'features/documents/documents_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await AppConstants.loadCustomBaseUrl();
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );

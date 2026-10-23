@@ -104,7 +104,15 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (error) {
       if (mounted) {
         setState(() => _isLoading = false);
-        _showMessage('Could not send OTP: $error');
+        final errText = error.toString();
+        if (errText.contains('timed out') ||
+            errText.contains('TimeoutException') ||
+            errText.contains('Cannot connect') ||
+            errText.contains('SocketException')) {
+          _showConnectionErrorDialog(errText);
+        } else {
+          _showMessage('Could not send OTP: $error');
+        }
       }
     }
   }
@@ -126,9 +134,227 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (error) {
       if (mounted) {
         setState(() => _isLoading = false);
-        _showMessage('Could not verify OTP: $error');
+        final errText = error.toString();
+        if (errText.contains('timed out') ||
+            errText.contains('TimeoutException') ||
+            errText.contains('Cannot connect') ||
+            errText.contains('SocketException')) {
+          _showConnectionErrorDialog(errText);
+        } else {
+          _showMessage('Could not verify OTP: $error');
+        }
       }
     }
+  }
+
+  void _showConnectionErrorDialog(String details) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.wifi_off, color: Colors.redAccent),
+            SizedBox(width: 8),
+            Text('Server Connection Timeout', style: TextStyle(fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Could not reach the CareBridge backend server within 15 seconds.',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Text(
+                'Endpoint:\n${AppConstants.apiBaseUrl}',
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Resolution:\n'
+              '• If using a Physical Phone: 10.0.2.2 cannot route to your PC. Tap "Server Settings" below to set your PC\'s Wi-Fi IP (e.g. http://172.20.241.82:8080/api/v1).\n'
+              '• If using an Android Emulator: Make sure the backend server is running on port 8080.\n'
+              '• If testing on Web/Desktop: Use http://localhost:8080/api/v1.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Dismiss'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _splashTeal,
+              foregroundColor: _splashTealInk,
+            ),
+            icon: const Icon(Icons.settings, size: 16),
+            label: const Text('Server Settings'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showServerConfigDialog();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showServerConfigDialog() {
+    final controller = TextEditingController(text: AppConstants.apiBaseUrl);
+    String testStatus = '';
+    bool testing = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.dns, color: _splashTealInk),
+                  SizedBox(width: 8),
+                  Text('Server Settings', style: TextStyle(fontSize: 18)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Configure backend API URL for CareBridge:',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: controller,
+                      decoration: const InputDecoration(
+                        labelText: 'API Base URL',
+                        hintText: 'http://172.20.241.82:8080/api/v1',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Quick Presets:',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        ActionChip(
+                          label: const Text('Wi-Fi IP (172.20.241.82)', style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setDialogState(() {
+                              controller.text = 'http://172.20.241.82:8080/api/v1';
+                              testStatus = '';
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          label: const Text('Emulator (10.0.2.2)', style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setDialogState(() {
+                              controller.text = 'http://10.0.2.2:8080/api/v1';
+                              testStatus = '';
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          label: const Text('Localhost (127.0.0.1)', style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setDialogState(() {
+                              controller.text = 'http://127.0.0.1:8080/api/v1';
+                              testStatus = '';
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      icon: testing
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.network_check, size: 16),
+                      label: Text(testing ? 'Testing connection...' : 'Test Connection'),
+                      onPressed: testing
+                          ? null
+                          : () async {
+                              setDialogState(() {
+                                testing = true;
+                                testStatus = '';
+                              });
+                              final res = await AdmissionService.testConnection(controller.text);
+                              if (dialogCtx.mounted) {
+                                setDialogState(() {
+                                  testing = false;
+                                  testStatus = res.ok
+                                      ? 'Connected successfully!'
+                                      : 'Connection failed: ${res.message}';
+                                });
+                              }
+                            },
+                    ),
+                    if (testStatus.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        testStatus,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: testStatus.startsWith('Connected') ? Colors.green.shade700 : Colors.red,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _splashTeal,
+                    foregroundColor: _splashTealInk,
+                  ),
+                  onPressed: () async {
+                    final newUrl = controller.text.trim();
+                    if (newUrl.isNotEmpty) {
+                      await AppConstants.setAndSaveBaseUrl(newUrl);
+                      if (mounted) setState(() {});
+                    }
+                    if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                  },
+                  child: const Text('Save & Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showMessage(String message) {
@@ -181,7 +407,27 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: ActionChip(
+                        avatar: const Icon(Icons.dns, size: 14, color: _splashTealInk),
+                        label: Text(
+                          'Server: ${AppConstants.apiBaseUrl}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _splashTealInk,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        backgroundColor: Colors.teal.shade50,
+                        side: BorderSide(
+                          color: _splashTealInk.withValues(alpha: 0.25),
+                        ),
+                        onPressed: _showServerConfigDialog,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     TextField(
                       controller: _phoneController,
                       enabled: !_otpSent && !_isLoading,

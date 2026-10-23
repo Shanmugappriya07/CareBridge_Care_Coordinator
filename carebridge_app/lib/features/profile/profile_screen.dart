@@ -171,14 +171,14 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 8),
               CustomCard(
                 child: Column(
-                  children: const [
-                    _SettingRow('HMS Host', 'St. Jude HMS (v4.2.1)'),
-                    Divider(),
+                  children: [
+                    const _SettingRow('HMS Host', 'St. Jude HMS (v4.2.1)'),
+                    const Divider(),
                     _SettingRow('API Bridge Endpoint', AppConstants.apiBaseUrl),
-                    Divider(),
-                    _SettingRow('Authentication', 'CareBridge API OTP'),
-                    Divider(),
-                    _SettingRow('Push Notification Channel', 'FCM Active'),
+                    const Divider(),
+                    const _SettingRow('Authentication', 'CareBridge API OTP'),
+                    const Divider(),
+                    const _SettingRow('Push Notification Channel', 'FCM Active'),
                   ],
                 ),
               ),
