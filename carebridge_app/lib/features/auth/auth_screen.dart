@@ -182,10 +182,12 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Resolution:\n'
-              '• If using a Physical Phone: 10.0.2.2 cannot route to your PC. Tap "Server Settings" below to set your PC\'s Wi-Fi IP (e.g. http://172.20.241.82:8080/api/v1).\n'
-              '• If using an Android Emulator: Make sure the backend server is running on port 8080.\n'
-              '• If testing on Web/Desktop: Use http://localhost:8080/api/v1.',
+              'Resolution for USB Debugging in Android Studio:\n'
+              '• Run this command in your Android Studio Terminal:\n'
+              '    adb reverse tcp:8080 tcp:8080\n'
+              '  This routes requests from your phone\'s 127.0.0.1:8080 over USB to your PC.\n'
+              '• Ensure your backend server is running on port 8080.\n'
+              '• If connecting over Wi-Fi without USB, use your PC\'s Wi-Fi IP in Server Settings.',
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
           ],
@@ -244,7 +246,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       controller: controller,
                       decoration: const InputDecoration(
                         labelText: 'API Base URL',
-                        hintText: 'http://172.20.241.82:8080/api/v1',
+                        hintText: 'http://127.0.0.1:8080/api/v1',
                         isDense: true,
                       ),
                     ),
@@ -259,10 +261,19 @@ class _AuthScreenState extends State<AuthScreen> {
                       runSpacing: 6,
                       children: [
                         ActionChip(
-                          label: const Text('Wi-Fi IP (172.20.241.82)', style: TextStyle(fontSize: 11)),
+                          label: const Text('USB Debugging (127.0.0.1)', style: TextStyle(fontSize: 11)),
                           onPressed: () {
                             setDialogState(() {
-                              controller.text = 'http://172.20.241.82:8080/api/v1';
+                              controller.text = 'http://127.0.0.1:8080/api/v1';
+                              testStatus = '';
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          label: const Text('PC Wi-Fi IP (192.168.54.247)', style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setDialogState(() {
+                              controller.text = 'http://192.168.54.247:8080/api/v1';
                               testStatus = '';
                             });
                           },
@@ -272,15 +283,6 @@ class _AuthScreenState extends State<AuthScreen> {
                           onPressed: () {
                             setDialogState(() {
                               controller.text = 'http://10.0.2.2:8080/api/v1';
-                              testStatus = '';
-                            });
-                          },
-                        ),
-                        ActionChip(
-                          label: const Text('Localhost (127.0.0.1)', style: TextStyle(fontSize: 11)),
-                          onPressed: () {
-                            setDialogState(() {
-                              controller.text = 'http://127.0.0.1:8080/api/v1';
                               testStatus = '';
                             });
                           },
@@ -405,26 +407,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         'Sign in securely with your phone number',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: ActionChip(
-                        avatar: const Icon(Icons.dns, size: 14, color: _splashTealInk),
-                        label: Text(
-                          'Server: ${AppConstants.apiBaseUrl}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: _splashTealInk,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        backgroundColor: Colors.teal.shade50,
-                        side: BorderSide(
-                          color: _splashTealInk.withValues(alpha: 0.25),
-                        ),
-                        onPressed: _showServerConfigDialog,
                       ),
                     ),
                     const SizedBox(height: 20),

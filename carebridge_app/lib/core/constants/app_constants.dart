@@ -37,7 +37,7 @@ class AppConstants {
 
   /// Default URL automatically adapts based on platform:
   /// - Web / Windows / macOS / Linux: localhost:8080
-  /// - Android emulator: 10.0.2.2:8080
+  /// - Android (USB debugging with `adb reverse tcp:8080 tcp:8080`): 127.0.0.1:8080
   /// - Can also be set at compile time via: --dart-define=API_BASE_URL=...
   static String get defaultApiBaseUrl {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
@@ -45,7 +45,10 @@ class AppConstants {
     if (kIsWeb) return 'http://localhost:8080/api/v1';
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        return 'http://10.0.2.2:8080/api/v1';
+        // For Android physical devices via USB debugging in Android Studio,
+        // running "adb reverse tcp:8080 tcp:8080" routes 127.0.0.1:8080
+        // through the USB cable directly to the host PC backend.
+        return 'http://127.0.0.1:8080/api/v1';
       case TargetPlatform.iOS:
       case TargetPlatform.macOS:
       case TargetPlatform.windows:
@@ -67,7 +70,13 @@ class AppConstants {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString('carebridge_api_base_url');
       if (saved != null && saved.trim().isNotEmpty) {
-        _customApiBaseUrl = saved.trim().replaceAll(RegExp(r'/+$'), '');
+        // Automatically clear obsolete emulator or stale hardcoded IPs
+        if (saved.contains('10.0.2.2') || saved.contains('172.20.241.82')) {
+          await prefs.remove('carebridge_api_base_url');
+          _customApiBaseUrl = '';
+        } else {
+          _customApiBaseUrl = saved.trim().replaceAll(RegExp(r'/+$'), '');
+        }
       }
     } catch (_) {}
   }
