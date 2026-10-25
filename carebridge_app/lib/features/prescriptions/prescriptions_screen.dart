@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/custom_card.dart';
-import '../../core/widgets/payment_modal.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/admission_read_only_banner.dart';
 import '../admissions/admission_model.dart';
@@ -199,39 +198,17 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
               Navigator.pop(ctx);
               if (widget.isReadOnly) return;
               setState(() => _medications[index].isOrdered = true);
-              _openPayment(index);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Order placed for ${med.name}. Payment is processed directly at the Hospital Pharmacy Counter.'),
+                  backgroundColor: AppColors.info,
+                ),
+              );
             },
-            child: const Text('Place Order & Pay'),
+            child: const Text('Confirm Order'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _openPayment(int index) {
-    if (widget.isReadOnly) return;
-
-    final med = _medications[index];
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => PaymentModal(
-        amount: med.price,
-        admissionId: widget.admission.id,
-        caregiverMobile: widget.caregiverMobile,
-        onPaymentSuccess: (confirmed) {
-          if (widget.isReadOnly) return;
-          setState(() => _medications[index].isPaid = true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Payment successful for ${med.name}. Ref: ${confirmed.txId}'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        },
       ),
     );
   }
@@ -296,7 +273,6 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
                   errorMessage: _prescriptionsError,
                   onRetry: _loadPrescriptions,
                   onPlaceOrder: _placeOrder,
-                  onPay: _openPayment,
                 ),
                 _MedicineStatusTab(
                   medications: _medications,
@@ -324,7 +300,6 @@ class _PrescriptionsTab extends StatelessWidget {
   final String? errorMessage;
   final Future<void> Function() onRetry;
   final void Function(int) onPlaceOrder;
-  final void Function(int) onPay;
 
   const _PrescriptionsTab({
     required this.prescriptions,
@@ -334,7 +309,6 @@ class _PrescriptionsTab extends StatelessWidget {
     required this.errorMessage,
     required this.onRetry,
     required this.onPlaceOrder,
-    required this.onPay,
   });
 
   @override
@@ -405,9 +379,9 @@ class _PrescriptionsTab extends StatelessWidget {
                               fontWeight: FontWeight.bold, fontSize: 15)),
                     ),
                     if (m.isOrdered)
-                      StatusBadge(
-                        label: m.isPaid ? 'Paid' : 'Awaiting Payment',
-                        type: m.isPaid ? BadgeType.success : BadgeType.warning,
+                      const StatusBadge(
+                        label: 'Order Placed',
+                        type: BadgeType.info,
                       ),
                   ],
                 ),
@@ -476,23 +450,13 @@ class _PrescriptionsTab extends StatelessWidget {
                               size: 18),
                           label: const Text('Place Order at Pharmacy'),
                         )
-                      : !m.isPaid
-                          ? ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.warning,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: isReadOnly ? null : () => onPay(index),
-                              icon: const Icon(Icons.payment, size: 18),
-                              label: const Text('Complete Payment'),
-                            )
-                          : OutlinedButton.icon(
-                              onPressed: null,
-                              icon: const Icon(Icons.check_circle,
-                                  size: 18, color: AppColors.success),
-                              label: const Text('Ordered & Paid',
-                                  style: TextStyle(color: AppColors.success)),
-                            ),
+                      : OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.check_circle,
+                              size: 18, color: AppColors.success),
+                          label: const Text('Order Placed (Pay at Pharmacy Desk)',
+                              style: TextStyle(color: AppColors.success)),
+                        ),
                 ),
               ],
             ),

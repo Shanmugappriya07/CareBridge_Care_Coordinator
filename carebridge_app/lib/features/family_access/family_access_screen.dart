@@ -155,6 +155,36 @@ class _FamilyAccessScreenState extends State<FamilyAccessScreen> {
                                 return;
                               }
 
+                              String cleanDigits(String p) =>
+                                  p.replaceAll(RegExp(r'\D'), '');
+                              final enteredDigits = cleanDigits(phone);
+                              final primaryPhone = widget.admission.primaryCaregiverMobile.isNotEmpty
+                                  ? widget.admission.primaryCaregiverMobile
+                                  : widget.admission.caregiverMobile;
+                              final primaryDigits = cleanDigits(primaryPhone);
+                              final activeDigits = cleanDigits(_activeMobile);
+
+                              final entered10 = enteredDigits.length >= 10
+                                  ? enteredDigits.substring(enteredDigits.length - 10)
+                                  : enteredDigits;
+                              final primary10 = primaryDigits.length >= 10
+                                  ? primaryDigits.substring(primaryDigits.length - 10)
+                                  : primaryDigits;
+                              final active10 = activeDigits.length >= 10
+                                  ? activeDigits.substring(activeDigits.length - 10)
+                                  : activeDigits;
+
+                              if (entered10.isNotEmpty &&
+                                  (entered10 == primary10 || entered10 == active10)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        'Cannot add the Primary Caregiver as an extended family member. Please enter the family member’s unique mobile number.'),
+                                  ),
+                                );
+                                return;
+                              }
+
                               final messenger = ScaffoldMessenger.of(context);
                               final navigator = Navigator.of(modalContext);
 
@@ -262,14 +292,14 @@ class _FamilyAccessScreenState extends State<FamilyAccessScreen> {
                   title: Text(
                     widget.admission.primaryCaregiverName.isNotEmpty
                         ? widget.admission.primaryCaregiverName
-                        : (widget.admission.caregiverName.isEmpty
-                            ? 'Caregiver details unavailable'
-                            : widget.admission.caregiverName),
+                        : (!widget.isReadOnly && widget.admission.caregiverName.isNotEmpty
+                            ? widget.admission.caregiverName
+                            : 'Primary Caregiver'),
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
-                    '${widget.admission.primaryCaregiverMobile.isNotEmpty ? widget.admission.primaryCaregiverMobile : (widget.admission.caregiverMobile.isEmpty ? 'Mobile unavailable' : widget.admission.caregiverMobile)} • Primary Caregiver',
+                    '${widget.admission.primaryCaregiverMobile.isNotEmpty ? widget.admission.primaryCaregiverMobile : (!widget.isReadOnly && widget.admission.caregiverMobile.isNotEmpty ? widget.admission.caregiverMobile : 'Mobile unavailable')} • Primary Caregiver',
                     overflow: TextOverflow.ellipsis,
                   ),
                   trailing: const StatusBadge(

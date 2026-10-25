@@ -5,7 +5,6 @@ import '../../core/constants/app_constants.dart';
 import '../../core/widgets/custom_card.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/digital_receipt_sheet.dart';
-import '../../core/widgets/payment_modal.dart';
 import '../admissions/admission_model.dart';
 import '../admissions/admission_service.dart';
 import 'billing_model.dart';
@@ -71,34 +70,11 @@ class _BillingScreenState extends State<BillingScreen> {
     );
   }
 
-  void _showPaymentModal() {
-    final b = _billing!;
-    if (b.isReadOnly || b.balance <= 0) return;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => PaymentModal(
-        amount: b.balance,
-        admissionId: widget.admission.id,
-        caregiverMobile: widget.admission.caregiverMobile,
-        onPaymentSuccess: (confirmed) {
-          // Show receipt immediately with the server-confirmed transaction ID
-          _showReceipt(confirmed);
-          // Reload billing so balance and payment history reflect the new state
-          _load();
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pharmacy Bills'),
+        title: const Text('Hospital Bills'),
         actions: [
           if (!_loading)
             IconButton(
@@ -216,7 +192,7 @@ class _BillingScreenState extends State<BillingScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Pharmacy Billing Summary',
+                    'Hospital Billing Summary',
                     style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -261,17 +237,57 @@ class _BillingScreenState extends State<BillingScreen> {
                         const StatusBadge(
                             label: 'All Cleared',
                             type: BadgeType.success)
-                      else if (!b.isReadOnly &&
-                          widget.currentRole == CaregiverRole.primary)
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white30),
                           ),
-                          onPressed: _showPaymentModal,
-                          child: const Text('Pay Now'),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.storefront_outlined,
+                                  color: Colors.white, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'Pay at Hospital Desk',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              margin: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.infoLight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: AppColors.info),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Hospital charges and payments are collected and recorded directly at the HMS Billing & Cashier Desk.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.info,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ],
               ),

@@ -21,6 +21,45 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isFamily =
+        currentRole == CaregiverRole.family || admission.isReadOnly;
+
+    final String activeUserName = isFamily
+        ? (admission.caregiverName.isNotEmpty
+            ? admission.caregiverName
+            : 'Extended Family Member')
+        : (admission.primaryCaregiverName.isNotEmpty
+            ? admission.primaryCaregiverName
+            : (admission.caregiverName.isNotEmpty
+                ? admission.caregiverName
+                : 'Primary Caregiver'));
+
+    final String activeUserMobile = caregiverMobile.isNotEmpty
+        ? caregiverMobile
+        : (isFamily
+            ? admission.caregiverMobile
+            : admission.primaryCaregiverMobile);
+
+    final String activeUserRelation = isFamily
+        ? (admission.caregiverRelationship.isNotEmpty
+            ? admission.caregiverRelationship
+            : 'Extended Family Member')
+        : (admission.caregiverRelationship.isNotEmpty
+            ? admission.caregiverRelationship
+            : 'Primary Caregiver');
+
+    final String primaryName = admission.primaryCaregiverName.isNotEmpty
+        ? admission.primaryCaregiverName
+        : (!admission.isReadOnly && admission.caregiverName.isNotEmpty
+            ? admission.caregiverName
+            : 'Primary Caregiver');
+
+    final String primaryPhone = admission.primaryCaregiverMobile.isNotEmpty
+        ? admission.primaryCaregiverMobile
+        : (!admission.isReadOnly && admission.caregiverMobile.isNotEmpty
+            ? admission.caregiverMobile
+            : 'Contact via Hospital');
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile & Identity Details'),
@@ -40,11 +79,18 @@ class ProfileScreen extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const CircleAvatar(
+                        CircleAvatar(
                           radius: 28,
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(Icons.person,
-                              size: 32, color: AppColors.primary),
+                          backgroundColor: isFamily
+                              ? AppColors.surfaceVariant
+                              : AppColors.primaryLight,
+                          child: Icon(
+                            isFamily ? Icons.person_outline : Icons.person,
+                            size: 32,
+                            color: isFamily
+                                ? AppColors.textPrimary
+                                : AppColors.primary,
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -52,25 +98,25 @@ class ProfileScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                  admission.caregiverName.isEmpty
-                                      ? 'Caregiver'
-                                      : admission.caregiverName,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 17),
-                                  overflow: TextOverflow.ellipsis),
+                                activeUserName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 17),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               Text(
-                                  '$caregiverMobile • ${admission.caregiverRelationship}',
-                                  style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary),
-                                  overflow: TextOverflow.ellipsis),
+                                '$activeUserMobile • $activeUserRelation',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               const SizedBox(height: 4),
                               StatusBadge(
                                 label: AppConstants.getRoleName(currentRole),
-                                type: currentRole == CaregiverRole.primary
-                                    ? BadgeType.success
-                                    : BadgeType.neutral,
+                                type: isFamily
+                                    ? BadgeType.neutral
+                                    : BadgeType.success,
                               ),
                             ],
                           ),
@@ -82,14 +128,15 @@ class ProfileScreen extends StatelessWidget {
                     const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
+                      children: [
                         Expanded(
                             child: _ProfileIdChip(
-                                label: 'Caregiver ID', val: 'N/A')),
-                        Expanded(
+                                label: 'Access Level',
+                                val: isFamily ? 'Read-Only' : 'Full Access')),
+                        const Expanded(
                             child: _ProfileIdChip(
                                 label: 'Phone Auth', val: 'Verified')),
-                        Expanded(
+                        const Expanded(
                             child: _ProfileIdChip(
                                 label: 'Session', val: 'Active')),
                       ],
@@ -99,7 +146,39 @@ class ProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              // CARD 2: Admitted Patient Details
+              // CARD 2: Primary Caregiver (Shown when logged in as an Extended Family Member)
+              if (isFamily) ...[
+                const Text('Primary Caregiver for Patient',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                CustomCard(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      backgroundColor: AppColors.primaryLight,
+                      child: Icon(Icons.star, color: AppColors.primary),
+                    ),
+                    title: Text(
+                      primaryName,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      '$primaryPhone • Primary Decision Maker',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    trailing: const StatusBadge(
+                      label: 'Primary',
+                      type: BadgeType.success,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // CARD 3: Admitted Patient Details
               const Text('Admitted Patient Details',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -160,25 +239,6 @@ class ProfileScreen extends StatelessWidget {
                         '${admission.hospitalName} (${admission.roomWard})'),
                     const Divider(),
                     _SettingRow('Attending Doctor', admission.doctor),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // HMS Integration Technical Info
-              const Text('HMS System Connection',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              CustomCard(
-                child: Column(
-                  children: [
-                    const _SettingRow('HMS Host', 'St. Jude HMS (v4.2.1)'),
-                    const Divider(),
-                    _SettingRow('API Bridge Endpoint', AppConstants.apiBaseUrl),
-                    const Divider(),
-                    const _SettingRow('Authentication', 'CareBridge API OTP'),
-                    const Divider(),
-                    const _SettingRow('Push Notification Channel', 'FCM Active'),
                   ],
                 ),
               ),

@@ -58,6 +58,19 @@ class Admission {
     final String cRole = data['caregiverRole'] as String? ??
         (readOnly ? 'family' : 'primary');
 
+    final String pName =
+        (primaryCaregiver['name'] as String? ?? '').trim().isNotEmpty
+            ? (primaryCaregiver['name'] as String).trim()
+            : (!readOnly
+                ? (caregiver['caregiverName'] as String? ?? '').trim()
+                : '');
+    final String pMobile =
+        (primaryCaregiver['phone'] as String? ?? '').trim().isNotEmpty
+            ? (primaryCaregiver['phone'] as String).trim()
+            : (!readOnly
+                ? (caregiver['caregiverMobile'] as String? ?? '').trim()
+                : '');
+
     return Admission(
       id: data['admissionId'] as String? ?? '',
       patientId: data['patientId'] as String? ?? '',
@@ -76,8 +89,8 @@ class Admission {
       caregiverName: caregiver['caregiverName'] as String? ?? '',
       caregiverMobile: caregiver['caregiverMobile'] as String? ?? '',
       caregiverRelationship: caregiver['relationship'] as String? ?? '',
-      primaryCaregiverName: primaryCaregiver['name'] as String? ?? '',
-      primaryCaregiverMobile: primaryCaregiver['phone'] as String? ?? '',
+      primaryCaregiverName: pName,
+      primaryCaregiverMobile: pMobile,
       isReadOnly: readOnly,
       caregiverRole: cRole,
     );

@@ -811,29 +811,72 @@ textarea.form-control {
   color: #94a3b8;
 }
 
-/* Aggregated Draft Invoice Table */
+/* Aggregated Draft Invoice Table (Controlled Fixed Height & Scroll) */
+.draft-invoice-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 480px;
+  overflow: hidden;
+}
+
 .draft-table-wrapper {
+  flex: 1;
+  max-height: 290px;
+  overflow-y: auto;
   overflow-x: auto;
   border-radius: var(--radius-md);
   border: 1px solid #e2e8f0;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
+  position: relative;
 }
 
 .draft-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .draft-table th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   background: #1e293b;
   color: #f8fafc;
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: 11px;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Payment History Table (Controlled Fixed Height & Scroll) */
+.payment-history-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow: hidden;
+}
+
+.payment-table-wrapper {
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid #e2e8f0;
+  position: relative;
+}
+
+.payment-table-wrapper table th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 8px 10px;
+  font-size: 11px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .draft-table td {
@@ -1230,6 +1273,112 @@ textarea.form-control {
 .row-highlight-new {
   animation: ledgerRowFlash 2.5s ease-out;
   border-left: 3px solid var(--emerald-success);
+}
+
+/* Credit Balance Box */
+.credit-balance-box {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+
+/* ===============================================================
+   DEDICATED A4 PRINT STYLES FOR DRAFT & FINAL INVOICES
+   =============================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 14mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide entire application shell and non-printable elements */
+  .hms-sidebar,
+  .hms-header,
+  .app-header,
+  .dept-view,
+  .no-print,
+  .hms-modal-header,
+  .hms-modal-footer,
+  .hms-custom-modal:not(#invoicePreviewModal),
+  #receiptVoucherModal,
+  #customChargeModal,
+  #transferModal {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Make invoice modal print container take full page cleanly */
+  #invoicePreviewModal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    z-index: auto !important;
+  }
+
+  #invoicePreviewModal .hms-custom-modal-card {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  #invoicePrintArea {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+  }
+
+  /* A4 Invoice print table formatting */
+  .invoice-print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .invoice-print-table thead {
+    display: table-header-group !important;
+  }
+
+  .invoice-print-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .invoice-print-table td,
+  .invoice-print-table th {
+    padding: 6px 8px !important;
+  }
+
+  .invoice-totals-block,
+  .invoice-signatures-block {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
 }
 
 

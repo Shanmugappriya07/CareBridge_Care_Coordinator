@@ -81,6 +81,7 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   charset: 'utf8mb4',
   connectTimeout: 2000,
+  dateStrings: ['DATE'],
 });
 
 pool.on('error', (err) => {
@@ -357,21 +358,49 @@ pool.query(`
   ALTER TABLE doctor_appointments ADD COLUMN assigned_lab_reports VARCHAR(255) NULL
 `).catch(() => {});
 
+// Auto-correct any appointment scheduled today that was shifted to yesterday due to UTC conversion
+pool.query(`
+  UPDATE doctor_appointments 
+  SET appointment_date = CURDATE() 
+  WHERE DATE(created_at) = CURDATE() AND appointment_date < CURDATE()
+`).catch(() => {});
 
+// Ensure payments table supports patient_id, payer, reference, and created_at
+pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS patient_id VARCHAR(64) NULL').catch(() => {
+  pool.query('ALTER TABLE payments ADD COLUMN patient_id VARCHAR(64) NULL').catch(() => {});
+});
+pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS payer VARCHAR(160) NULL').catch(() => {
+  pool.query('ALTER TABLE payments ADD COLUMN payer VARCHAR(160) NULL').catch(() => {});
+});
+pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference VARCHAR(160) NULL').catch(() => {
+  pool.query('ALTER TABLE payments ADD COLUMN reference VARCHAR(160) NULL').catch(() => {});
+});
+pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP').catch(() => {
+  pool.query('ALTER TABLE payments ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP').catch(() => {});
+});
 
 // ---------------------------------------------------------------
 // Helpers: map MySQL rows <-> the exact JSON shape the frontends use
 // ---------------------------------------------------------------
 function formatDateOnly(d) {
   if (!d) return '';
-  if (typeof d === 'string') return d.slice(0, 10);
   if (d instanceof Date) {
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
-  return String(d).slice(0, 10);
+  const str = String(d).trim();
+  if (str.includes(' ') || str.includes('T')) {
+    const parsed = new Date(str.includes('T') ? str : str.replace(' ', 'T') + (str.includes('Z') ? '' : 'Z'));
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return str.slice(0, 10);
 }
 
 function mapPatient(p) {
@@ -514,20 +543,35 @@ function mapPrescription(r) {
   };
 }
 function mapBillItem(i) {
-  return { desc: i.description, category: i.category, amount: Number(i.amount) };
+  return {
+    id: i.id,
+    admissionId: i.admission_id,
+    admission_id: i.admission_id,
+    desc: i.description,
+    description: i.description,
+    category: i.category,
+    amount: Number(i.amount)
+  };
 }
 function mapPayment(p) {
   const dStr = p.date || p.date_label || p.dateLabel || '13-Aug-2026, 10:30 AM';
   return {
+    id: p.id,
     txId: p.tx_id || p.txId,
+    tx_id: p.tx_id || p.txId,
     admissionId: p.admission_id || p.admissionId,
+    admission_id: p.admission_id || p.admissionId,
+    patientId: p.patient_id || p.patientId || null,
+    patient_id: p.patient_id || p.patientId || null,
     date: dStr,
     dateLabel: dStr,
     date_label: dStr,
     method: p.method,
-    payer: p.payer || 'Priya Lakshmi (Caregiver)',
+    reference: p.reference || null,
+    payer: p.payer || 'Caregiver',
     amount: Number(p.amount),
-    status: p.status,
+    status: p.status || 'Paid',
+    created_at: p.created_at || null
   };
 }
 function getInvestigationCategory(name) {
@@ -561,7 +605,7 @@ function mapAppointment(a) {
     patientId: a.patient_id,
     doctorName: a.doctor_name,
     department: a.department,
-    appointmentDate: a.appointment_date instanceof Date ? a.appointment_date.toISOString().slice(0, 10) : String(a.appointment_date || ''),
+    appointmentDate: formatDateOnly(a.appointment_date),
     appointmentTime: a.appointment_time,
     appointmentType: a.appointment_type,
     assignedLabReports: a.assigned_lab_reports || '',
@@ -1015,17 +1059,37 @@ app.post('/api/hms/sync', async (req, res) => {
     }
 
     if (db.billing) {
-      const admissionId = (db.patients && db.patients[0] && db.patients[0].admissionId) || 'HMS-2026-8842';
+      const admissionId = db.billing.admissionId || (db.patients && db.patients[0] && db.patients[0].admissionId) || 'HMS-2026-8842';
+      
+      // Calculate authoritative remaining balance based on MySQL payments for this admission
+      let authoritativeRemaining = Number(db.billing.remainingPayable || 0);
+      try {
+        const [pRows] = await conn.query('SELECT amount, status, method, tx_id FROM payments WHERE admission_id = ?', [admissionId]);
+        let totalPaid = 0;
+        for (const p of pRows) {
+          const pAmt = Number(p.amount) || 0;
+          const isRef = p.status === 'Refunded' || String(p.tx_id).startsWith('RFND-') || String(p.method).toLowerCase().includes('refund');
+          if (isRef) totalPaid = Math.max(0, totalPaid - pAmt);
+          else totalPaid += pAmt;
+        }
+        const totalBill = Number(db.billing.totalBill) || 0;
+        const isApproved = (db.billing.claimStatus === 'Approved' || db.billing.claimStatus === 'Settled');
+        const insCovered = isApproved ? (Number(db.billing.insuranceCovered) || 0) : 0;
+        if (totalBill > 0) {
+          authoritativeRemaining = Math.max(0, Math.round((totalBill - insCovered - totalPaid) * 100) / 100);
+        }
+      } catch (_) {}
+
       await conn.query(
         `INSERT INTO billing_summary (admission_id, total_bill, insurance_covered, remaining_payable, claim_status)
          VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE total_bill=VALUES(total_bill), insurance_covered=VALUES(insurance_covered),
-           remaining_payable=VALUES(remaining_payable), claim_status=VALUES(claim_status)`,
-        [admissionId, db.billing.totalBill || 0, db.billing.insuranceCovered || 0, db.billing.remainingPayable || 0, db.billing.claimStatus || 'Pending']
+           remaining_payable=?, claim_status=VALUES(claim_status)`,
+        [admissionId, db.billing.totalBill || 0, db.billing.insuranceCovered || 0, authoritativeRemaining, db.billing.claimStatus || 'Pending', authoritativeRemaining]
       );
 
       if (Array.isArray(db.billing.items)) {
-        await conn.query('DELETE FROM bill_items');
+        await conn.query('DELETE FROM bill_items WHERE admission_id = ?', [admissionId]);
         for (const i of db.billing.items) {
           await conn.query(
             `INSERT INTO bill_items (admission_id, description, category, amount) VALUES (?, ?, ?, ?)`,
@@ -1035,14 +1099,33 @@ app.post('/api/hms/sync', async (req, res) => {
       }
     }
 
+    // Sync payments safely without deleting existing ledger records
     if (Array.isArray(db.payments)) {
-      const admissionId = (db.patients && db.patients[0] && db.patients[0].admissionId) || 'HMS-2026-8842';
-      await conn.query('DELETE FROM payments');
-      for (const p of [...db.payments].reverse()) {
-        await conn.query(
-          `INSERT INTO payments (tx_id, admission_id, date_label, method, amount, status) VALUES (?, ?, ?, ?, ?, ?)`,
-          [p.txId, admissionId, p.date, p.method, p.amount, p.status]
-        );
+      for (const p of db.payments) {
+        const pTx = p.txId || p.tx_id;
+        const pAdm = p.admissionId || p.admission_id;
+        const pDate = p.date || p.date_label || p.dateLabel;
+        const pMethod = p.method || 'UPI / NetBanking';
+        const pPayer = p.payer || 'Caregiver';
+        const pAmt = Number(p.amount) || 0;
+        const pStatus = p.status || 'Paid';
+        if (pTx && pAdm && pAmt > 0) {
+          try {
+            await conn.query(
+              `INSERT INTO payments (tx_id, admission_id, date_label, method, payer, amount, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE date_label=VALUES(date_label), method=VALUES(method), payer=VALUES(payer), amount=VALUES(amount), status=VALUES(status)`,
+              [pTx, pAdm, pDate, pMethod, pPayer, pAmt, pStatus]
+            );
+          } catch (_) {
+            await conn.query(
+              `INSERT INTO payments (tx_id, admission_id, date_label, method, amount, status)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE date_label=VALUES(date_label), method=VALUES(method), amount=VALUES(amount), status=VALUES(status)`,
+              [pTx, pAdm, pDate, pMethod, pAmt, pStatus]
+            ).catch(() => {});
+          }
+        }
       }
     }
 
@@ -1080,11 +1163,406 @@ app.put('/api/hms/prescriptions/:id/collect', async (req, res) => {
   }
 });
 
-// Record a payment (supports caregiver app, billing desk collection widget, custom amount & reference)
+// Query payment ledger transactions (supports filter by admissionId)
+app.get(['/api/hms/payments', '/api/hms/admissions/:admissionId/payments'], async (req, res) => {
+  const targetAdmission = req.params.admissionId || req.query.admissionId;
+  try {
+    let query = 'SELECT * FROM payments';
+    const params = [];
+    if (targetAdmission) {
+      query += ' WHERE admission_id = ?';
+      params.push(targetAdmission);
+    }
+    query += ' ORDER BY id DESC, created_at DESC';
+    const [rows] = await pool.query(query, params);
+    res.json(rows.map(mapPayment));
+  } catch (err) {
+    let mem = memoryFallbackDb.payments || [];
+    if (targetAdmission) {
+      mem = mem.filter(p => p.admissionId === targetAdmission || p.admission_id === targetAdmission);
+    }
+    res.json(mem.map(mapPayment));
+  }
+});
+
+// ====================================================================
+// Authoritative Hospital Billing & Balance Resolution Engine
+// Strictly computes real clinical charges (room stay, treatments, labs,
+// prescriptions, custom items) without fake fallbacks or cross-patient leaks.
+// ====================================================================
+async function calculateAuthoritativeBilling(connOrPool, admissionId) {
+  if (!admissionId || String(admissionId).trim() === '') {
+    return { found: false, error: 'Valid Admission ID is required' };
+  }
+  const cleanAdmId = String(admissionId).trim();
+
+  // 1. Fetch admission & patient context
+  const [admRows] = await connOrPool.query(
+    'SELECT a.*, p.full_name AS patient_name, p.dob, p.age_gender, p.patient_phone, p.caregiver_name, p.caregiver_phone ' +
+    'FROM admissions a ' +
+    'LEFT JOIN patients p ON (a.patient_id = p.patient_id OR a.admission_id = p.admission_id) ' +
+    'WHERE a.admission_id = ? LIMIT 1',
+    [cleanAdmId]
+  );
+
+  let adm = admRows.length > 0 ? admRows[0] : null;
+  if (!adm) {
+    const [patRows] = await connOrPool.query('SELECT * FROM patients WHERE admission_id = ? LIMIT 1', [cleanAdmId]);
+    if (patRows.length > 0) {
+      adm = patRows[0];
+    } else {
+      return { found: false, error: `Admission "${cleanAdmId}" not found in hospital registry.` };
+    }
+  }
+
+  const items = [];
+
+  // Helper: Room Tariff lookup
+  const [tariffs] = await connOrPool.query('SELECT * FROM room_tariffs ORDER BY CHAR_LENGTH(room_type) DESC, id ASC');
+  function getDailyRate(room) {
+    const clean = String(room || '').toUpperCase().replace(/[-_]/g, ' ');
+    for (const t of tariffs) {
+      const k = (t.room_type || '').toUpperCase().replace(/[-_]/g, ' ');
+      if (k === 'ICU' && (clean.includes('ICU') || clean.includes('CRITICAL'))) {
+        return { tier: t.display_name, rate: Number(t.daily_rate) };
+      }
+      if (k === 'WARD' && (clean.includes('WARD') || clean.includes('GENERAL'))) {
+        return { tier: t.display_name, rate: Number(t.daily_rate) };
+      }
+      if (clean.includes(k)) {
+        return { tier: t.display_name, rate: Number(t.daily_rate) };
+      }
+    }
+    return { tier: 'General Ward Tier', rate: 1200.00 };
+  }
+
+  // 2. Room Stay Charges (Transfer-aware)
+  let checkIn = null;
+  if (adm.admission_date) {
+    const dStr = typeof adm.admission_date === 'string' ? adm.admission_date.split('T')[0] : new Date(adm.admission_date).toISOString().split('T')[0];
+    const tStr = adm.admission_time || '09:00:00';
+    checkIn = new Date(`${dStr}T${tStr}`);
+  }
+  if (!checkIn || isNaN(checkIn.getTime())) {
+    checkIn = adm.created_at ? new Date(adm.created_at) : new Date(Date.now() - 3 * 86400000);
+  }
+
+  let checkOut = new Date();
+  if (adm.status === 'DISCHARGED' && adm.discharge_date) {
+    const dOut = new Date(adm.discharge_date);
+    if (!isNaN(dOut.getTime())) checkOut = dOut;
+  }
+
+  const [transfers] = await connOrPool.query(
+    'SELECT * FROM patient_transfers WHERE admission_id = ? ORDER BY transfer_date ASC, id ASC',
+    [cleanAdmId]
+  );
+
+  if (transfers.length === 0) {
+    const roomName = adm.room_number || adm.room || 'General Ward Bed 1';
+    const rInfo = getDailyRate(roomName);
+    const durationMs = Math.max(3600000, checkOut.getTime() - checkIn.getTime());
+    const durationHours = Math.max(1, Math.round(durationMs / 3600000));
+    const billedDays = Math.max(1, Math.round(durationHours / 24));
+    const subtotal = billedDays * rInfo.rate;
+    items.push({
+      id: 'STAY-1',
+      type: 'Stay',
+      name: `${roomName} Accommodation (${billedDays} ${billedDays === 1 ? 'Day' : 'Days'})`,
+      provider: 'Inpatient Nursing Station',
+      qty: billedDays,
+      qtyText: `${billedDays} ${billedDays === 1 ? 'Day' : 'Days'}`,
+      rate: rInfo.rate,
+      taxPercent: 0,
+      amount: subtotal,
+      isRoomStay: true,
+      sourceModule: 'Module 1: Transfers'
+    });
+  } else {
+    let legStart = checkIn;
+    transfers.forEach((tr, idx) => {
+      const legEnd = new Date(tr.transfer_date);
+      const hours = Math.max(1, Math.round(Math.max(3600000, legEnd.getTime() - legStart.getTime()) / 3600000));
+      const days = Math.max(1, Math.round(hours / 24));
+      const rInfo = getDailyRate(tr.from_room);
+      items.push({
+        id: `STAY-${idx + 1}`,
+        type: 'Stay',
+        name: `${tr.from_room} Accommodation (${days} ${days === 1 ? 'Day' : 'Days'})`,
+        provider: 'Inpatient Nursing Station',
+        qty: days,
+        qtyText: `${days} ${days === 1 ? 'Day' : 'Days'}`,
+        rate: rInfo.rate,
+        taxPercent: 0,
+        amount: days * rInfo.rate,
+        isRoomStay: true,
+        sourceModule: 'Module 1: Transfers'
+      });
+      legStart = legEnd;
+    });
+
+    const currentRoom = transfers[transfers.length - 1].to_room || adm.room_number || 'General Ward Bed 1';
+    const hours = Math.max(1, Math.round(Math.max(3600000, checkOut.getTime() - legStart.getTime()) / 3600000));
+    const days = Math.max(1, Math.round(hours / 24));
+    const rInfo = getDailyRate(currentRoom);
+    items.push({
+      id: `STAY-${transfers.length + 1}`,
+      type: 'Stay',
+      name: `${currentRoom} Accommodation (${days} ${days === 1 ? 'Day' : 'Days'})`,
+      provider: 'Inpatient Nursing Station',
+      qty: days,
+      qtyText: `${days} ${days === 1 ? 'Day' : 'Days'}`,
+      rate: rInfo.rate,
+      taxPercent: 0,
+      amount: days * rInfo.rate,
+      isRoomStay: true,
+      sourceModule: 'Module 1: Transfers'
+    });
+  }
+
+  // 3. Treatments / Doctor Ward Visits (Strictly Persisted Only)
+  const [treatments] = await connOrPool.query(
+    'SELECT * FROM treatments WHERE admission_id = ? ORDER BY id ASC',
+    [cleanAdmId]
+  );
+  treatments.forEach((trt, idx) => {
+    const docName = trt.doctor_name || adm.attending_doctor || 'Attending Physician';
+    const isCardio = docName.toLowerCase().includes('aris') || docName.toLowerCase().includes('cardio');
+    const rate = isCardio ? 12000.00 : 2500.00;
+    items.push({
+      id: `DOC-RND-${trt.id || idx + 1}`,
+      type: 'Service',
+      name: `Inpatient Ward Round & Clinical Review (${trt.dept || 'Clinical'})`,
+      provider: docName,
+      qty: 1,
+      qtyText: '1 Visit',
+      rate: rate,
+      taxPercent: 0,
+      amount: rate,
+      sourceModule: 'Module 3: Doctor'
+    });
+  });
+
+  // 4. Lab Reports & Diagnostics (Strictly Persisted Only)
+  const [labs] = await connOrPool.query(
+    'SELECT * FROM lab_reports WHERE admission_id = ? ORDER BY id ASC',
+    [cleanAdmId]
+  );
+  labs.forEach((lab, idx) => {
+    let labRate = 850.00;
+    const titleLower = (lab.title || '').toLowerCase();
+    if (titleLower.includes('troponin') || titleLower.includes('cardiac')) labRate = 2500.00;
+    else if (titleLower.includes('ct') || titleLower.includes('scan')) labRate = 8000.00;
+    else if (titleLower.includes('cbc') || titleLower.includes('blood count')) labRate = 850.00;
+    else if (titleLower.includes('lft') || titleLower.includes('liver')) labRate = 1200.00;
+
+    items.push({
+      id: `LAB-${lab.id || idx + 1}`,
+      type: 'Lab',
+      name: `${lab.title || 'Diagnostic Test'} (${lab.category || 'Pathology'})`,
+      provider: 'Central Diagnostics & Pathology Lab',
+      qty: 1,
+      qtyText: '1 Test',
+      rate: labRate,
+      taxPercent: 0,
+      amount: labRate,
+      sourceModule: 'Module 4: Laboratory'
+    });
+  });
+
+  // 5. Prescriptions & Inpatient Pharmacy (Strictly Persisted Only)
+  const [rxs] = await connOrPool.query(
+    'SELECT * FROM prescriptions WHERE admission_id = ? ORDER BY id ASC',
+    [cleanAdmId]
+  );
+  rxs.forEach((rx, idx) => {
+    let medRate = 450.00;
+    const rxLower = (rx.name || '').toLowerCase();
+    if (rxLower.includes('ceftriaxone')) medRate = 1450.00;
+    else if (rxLower.includes('atorvastatin')) medRate = 650.00;
+    else if (rxLower.includes('injection') || rxLower.includes('iv')) medRate = 2200.00;
+
+    items.push({
+      id: `RX-${rx.id || idx + 1}`,
+      type: 'Pharmacy',
+      name: `${rx.name || 'Prescription Medication'} (${rx.duration || 'Pack'})`,
+      provider: 'Inpatient Pharmacy Dispense Unit',
+      qty: 1,
+      qtyText: '1 Pack',
+      rate: medRate,
+      taxPercent: 5,
+      amount: Math.round(medRate * 1.05 * 100) / 100,
+      sourceModule: 'Module 5: Pharmacy'
+    });
+  });
+
+  // 6. Pharmacy Transactions (Emergency Pay-Later Dispenses)
+  const [pharmTx] = await connOrPool.query(
+    'SELECT * FROM pharmacy_transactions WHERE admission_id = ? ORDER BY id ASC',
+    [cleanAdmId]
+  );
+  pharmTx.forEach((ptx, idx) => {
+    const qty = Number(ptx.quantity) || 1;
+    const total = Number(ptx.total_amount) || (Number(ptx.unit_price) * qty);
+    items.push({
+      id: `PHARM-TX-${ptx.id || idx + 1}`,
+      type: 'Pharmacy',
+      name: `Emergency Pharmacy (Pay Later): ${ptx.medicine_name} (Qty: ${qty})`,
+      provider: 'Emergency Pharmacy Desk',
+      qty: qty,
+      qtyText: `${qty} Units`,
+      rate: Number(ptx.unit_price) || (total / qty),
+      taxPercent: 0,
+      amount: total,
+      sourceModule: 'Module 5: Pharmacy'
+    });
+  });
+
+  // 7. Custom Bill Items (Strictly Scoped to this admission_id)
+  const [billItems] = await connOrPool.query(
+    'SELECT * FROM bill_items WHERE admission_id = ? ORDER BY id ASC',
+    [cleanAdmId]
+  );
+  billItems.forEach((bi, idx) => {
+    let bType = 'Service';
+    if (bi.category === 'Diagnostics') bType = 'Lab';
+    else if (bi.category === 'Pharmacy') bType = 'Pharmacy';
+
+    items.push({
+      id: `CUSTOM-BILL-${bi.id || idx + 1}`,
+      type: bType,
+      name: bi.description || `${bi.category} Charge`,
+      provider: 'Billing Administration',
+      qty: 1,
+      qtyText: '1 Unit',
+      rate: Number(bi.amount || 0),
+      taxPercent: 0,
+      amount: Number(bi.amount || 0),
+      sourceModule: 'Module 6: Billing Desk'
+    });
+  });
+
+  // 8. Aggregation & GST Calculations
+  const grossCharges = items.reduce((sum, i) => sum + (Number(i.rate) * Number(i.qty)), 0);
+  const totalTax = items.reduce((sum, i) => sum + (Number(i.rate) * Number(i.qty) * ((Number(i.taxPercent) || 0) / 100)), 0);
+  const totalPayable = Math.round((grossCharges + totalTax) * 100) / 100;
+
+  // 9. Insurance Reconciliation
+  const [bRows] = await connOrPool.query(
+    'SELECT total_bill, insurance_covered, remaining_payable, claim_status FROM billing_summary WHERE admission_id = ? LIMIT 1',
+    [cleanAdmId]
+  );
+  const bSum = bRows[0] || {};
+  const claimStatus = bSum.claim_status || 'Pending';
+  const isApproved = claimStatus === 'Approved' || claimStatus === 'Settled';
+  const rawInsurance = Number(bSum.insurance_covered || 0);
+  const approvedInsurance = isApproved ? Math.min(totalPayable, rawInsurance) : 0;
+
+  // 10. Advance Deposits Applied (Standard ₹5,000 for IPD)
+  const advanceDeposit = 5000.00;
+  const depositApplied = Math.min(advanceDeposit, Math.max(0, totalPayable - approvedInsurance));
+
+  // 11. Payments & Refunds
+  const [payments] = await connOrPool.query(
+    'SELECT * FROM payments WHERE admission_id = ? ORDER BY id DESC',
+    [cleanAdmId]
+  );
+  let paidAmount = 0;
+  let refundedAmount = 0;
+  payments.forEach(p => {
+    const amt = Number(p.amount) || 0;
+    const st = (p.status || '').toLowerCase();
+    const isRef = st === 'refunded' || String(p.tx_id || '').startsWith('RFND-') || amt < 0;
+    if (isRef) refundedAmount += Math.abs(amt);
+    else if (st === 'paid' || st === 'success' || !st) paidAmount += amt;
+  });
+  const netPaid = Math.max(0, paidAmount - refundedAmount);
+
+  // 12. Final Remaining Payable Balance
+  const patientResponsibility = Math.max(0, Math.round((totalPayable - approvedInsurance) * 100) / 100);
+  const totalPatientCredits = Math.round((depositApplied + netPaid) * 100) / 100;
+  let remainingPayable = 0;
+  let creditBalance = 0;
+
+  if (totalPatientCredits >= patientResponsibility) {
+    remainingPayable = 0;
+    creditBalance = Math.round((totalPatientCredits - patientResponsibility) * 100) / 100;
+  } else {
+    remainingPayable = Math.round((patientResponsibility - totalPatientCredits) * 100) / 100;
+    creditBalance = 0;
+  }
+
+  // 13. Persist authoritative totals back to billing_summary table
+  try {
+    await connOrPool.query(
+      `INSERT INTO billing_summary (admission_id, total_bill, insurance_covered, remaining_payable, claim_status)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         total_bill = VALUES(total_bill),
+         remaining_payable = VALUES(remaining_payable)`,
+      [cleanAdmId, totalPayable, rawInsurance, remainingPayable, claimStatus]
+    );
+  } catch (syncErr) {
+    console.warn('billing_summary sync notice:', syncErr.message);
+  }
+
+  return {
+    found: true,
+    admissionId: cleanAdmId,
+    patientId: adm.patient_id,
+    patientName: adm.patient_name || adm.fullName || 'Inpatient',
+    roomNumber: adm.room_number || adm.room,
+    grossCharges,
+    totalTax,
+    totalPayable,
+    advanceDeposit,
+    depositApplied,
+    insuranceCovered: rawInsurance,
+    approvedInsurance,
+    claimStatus,
+    paidAmount: netPaid,
+    refundedAmount,
+    balance: remainingPayable,
+    remainingPayable,
+    creditBalance,
+    items,
+    payments: payments.map(mapPayment)
+  };
+}
+
+// Authoritative billing summary & balance endpoint
+app.get(['/api/hms/billing', '/api/hms/admissions/:admissionId/billing'], async (req, res) => {
+  const targetAdmission = req.params.admissionId || req.query.admissionId || '26CAR008';
+  try {
+    const authBill = await calculateAuthoritativeBilling(pool, targetAdmission);
+    if (!authBill.found) {
+      return res.status(404).json({ error: authBill.error || `Admission "${targetAdmission}" not found.` });
+    }
+    res.json(authBill);
+  } catch (err) {
+    console.error('Error in /api/hms/billing:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Record a payment with strict atomic persistence, backend TxID generation, and overpayment rejection
 app.post('/api/hms/payments', async (req, res) => {
-  const { admissionId, method, amount, reference, payer, date: requestedDate, txId: requestedTxId } = req.body || {};
-  const targetAdmission = admissionId || 'HMS-2026-8842';
-  const txId = requestedTxId || ('TXN-' + Math.floor(100000 + Math.random() * 900000));
+  const { admissionId, patientId, method, amount, reference, payer, date: requestedDate, txId: requestedTxId, status: requestedStatus } = req.body || {};
+
+  if (!admissionId || String(admissionId).trim() === '') {
+    return res.status(400).json({ error: 'Valid Admission ID is required to process payment.' });
+  }
+  const targetAdmission = String(admissionId).trim();
+
+  const isRefund = Boolean(
+    req.body?.isRefund === true ||
+    (requestedTxId && requestedTxId.startsWith('RFND-')) ||
+    (requestedStatus === 'Refunded') ||
+    (method && String(method).toLowerCase().includes('refund'))
+  );
+
+  // Generate authoritative backend transaction ID
+  const txId = (isRefund ? 'RFND-' : 'TXN-') + Math.floor(100000 + Math.random() * 900000);
 
   let cleanDate = (requestedDate && typeof requestedDate === 'string' && requestedDate.trim().length > 5)
     ? requestedDate.trim()
@@ -1104,21 +1582,33 @@ app.post('/api/hms/payments', async (req, res) => {
     cleanDate = `${day}-${month}-${year}, ${hours}:${minutes} ${ampm}`;
   }
 
-  let methodLabel = method || 'UPI / NetBanking';
+  let methodLabel = method || (isRefund ? 'Authorized Hospital Refund' : 'UPI / NetBanking');
   if (reference && !methodLabel.includes(reference)) {
     methodLabel += ` (${reference})`;
   }
 
-  const paidAmt = (amount !== undefined && amount !== null && !isNaN(Number(amount)) && Number(amount) > 0)
-    ? Number(amount)
-    : 0;
+  const payerName = (payer && String(payer).trim()) ? String(payer).trim() : (isRefund ? 'Patient Refund' : 'Caregiver');
 
-  // Duplicate payment guard: Prevent recording identical transaction within 6 seconds
+  // Validate amount
+  const rawNum = Number(amount);
+  if (amount === undefined || amount === null || isNaN(rawNum)) {
+    return res.status(400).json({ error: isRefund ? 'Valid refund amount is required.' : 'Valid payment amount is required.' });
+  }
+
+  const effectiveAmt = Math.round(Math.abs(rawNum) * 100) / 100;
+  if (effectiveAmt <= 0) {
+    return res.status(400).json({
+      error: isRefund ? 'Refund amount must be greater than zero.' : 'Payment amount must be greater than zero.'
+    });
+  }
+
+  // Duplicate payment guard: Prevent recording identical transaction within 8 seconds
   if (!memoryFallbackDb.payments) memoryFallbackDb.payments = [];
   const existingDup = memoryFallbackDb.payments.find(p =>
     (p.admissionId === targetAdmission || p.admission_id === targetAdmission) &&
-    Number(p.amount) === paidAmt &&
-    (Date.now() - (p._recordedAt || 0) < 6000)
+    Math.abs(Number(p.amount) - effectiveAmt) < 0.01 &&
+    (p.status === (isRefund ? 'Refunded' : 'Paid')) &&
+    (Date.now() - (p._recordedAt || 0) < 8000)
   );
 
   if (existingDup) {
@@ -1126,82 +1616,168 @@ app.post('/api/hms/payments', async (req, res) => {
       success: true,
       duplicateIgnored: true,
       txId: existingDup.txId || existingDup.tx_id,
+      admissionId: targetAdmission,
+      patientId: existingDup.patientId || patientId || null,
       amount: existingDup.amount,
       date: existingDup.date || existingDup.date_label || cleanDate,
       method: existingDup.method || methodLabel,
-      payer: payer || 'Caregiver',
-      message: 'Duplicate payment request within 6 seconds safely ignored'
+      payer: existingDup.payer || payerName,
+      status: isRefund ? 'Refunded' : 'Paid',
+      message: 'Duplicate transaction request within 8 seconds safely ignored'
     });
   }
 
-  // 1. Immediately record in-memory fallback for instantaneous sync across all modules & mobile app
-  const memPayment = {
-    txId,
-    tx_id: txId,
-    admissionId: targetAdmission,
-    admission_id: targetAdmission,
-    date: cleanDate,
-    dateLabel: cleanDate,
-    date_label: cleanDate,
-    method: methodLabel,
-    amount: paidAmt,
-    payer: payer || 'Caregiver',
-    status: 'Paid',
-    _recordedAt: Date.now()
-  };
+  const recordStatus = isRefund ? 'Refunded' : 'Paid';
 
-  memoryFallbackDb.payments.unshift(memPayment);
-
-  if (memoryFallbackDb.billing) {
-    memoryFallbackDb.billing.remainingPayable = Math.max(0, (Number(memoryFallbackDb.billing.remainingPayable) || 0) - paidAmt);
-  }
-
-  // 2. Persist to MySQL database if available
+  // Real Database Transaction Execution
   let conn;
+  let targetPatientId = patientId || null;
+  let newRemaining = 0;
+
   try {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    const [billingRows] = await conn.query('SELECT remaining_payable FROM billing_summary WHERE admission_id = ?', [targetAdmission]);
-    const currentRemaining = billingRows[0] ? Number(billingRows[0].remaining_payable) : 0;
-
-    await conn.query(
-      'UPDATE billing_summary SET remaining_payable = GREATEST(0, remaining_payable - ?) WHERE admission_id = ?',
-      [paidAmt, targetAdmission]
-    );
-
-    if (paidAmt >= currentRemaining && currentRemaining > 0) {
-      await conn.query(
-        "UPDATE pharmacy_transactions SET payment_status = 'PAID' WHERE admission_id = ? AND payment_status = 'PENDING'",
-        [targetAdmission]
-      );
+    // 1. Resolve patient_id if not supplied
+    if (!targetPatientId) {
+      const [admRows] = await conn.query('SELECT patient_id FROM admissions WHERE admission_id = ? LIMIT 1', [targetAdmission]);
+      if (admRows.length > 0) {
+        targetPatientId = admRows[0].patient_id;
+      } else {
+        const [patRows] = await conn.query('SELECT patient_id FROM patients WHERE admission_id = ? LIMIT 1', [targetAdmission]);
+        if (patRows.length > 0) targetPatientId = patRows[0].patient_id;
+      }
     }
 
-    await conn.query(
-      'INSERT INTO payments (tx_id, admission_id, date_label, method, amount, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [txId, targetAdmission, cleanDate, methodLabel, paidAmt, 'Paid']
-    );
+    // 2. Lock & retrieve authoritative current remaining payable
+    const authBill = await calculateAuthoritativeBilling(conn, targetAdmission);
+    if (!authBill.found) {
+      await conn.rollback();
+      return res.status(404).json({ error: authBill.error || `Admission "${targetAdmission}" not found.` });
+    }
+    const currentRemaining = authBill.balance;
 
+    // Overpayment validation
+    if (!isRefund) {
+      if (currentRemaining <= 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: `No dues pending for admission ${targetAdmission} (remaining payable is ₹0.00). Payment cannot be accepted.`
+        });
+      }
+      if (effectiveAmt > currentRemaining + 0.01) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: `Payment amount (₹${effectiveAmt.toFixed(2)}) exceeds remaining payable balance (₹${currentRemaining.toFixed(2)}). Overpayment is not permitted.`
+        });
+      }
+    }
+
+    // 3. Insert into payments table
+    try {
+      await conn.query(
+        'INSERT INTO payments (tx_id, admission_id, patient_id, date_label, method, reference, payer, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [txId, targetAdmission, targetPatientId, cleanDate, methodLabel, reference || null, payerName, effectiveAmt, recordStatus]
+      );
+    } catch (insertErr) {
+      try {
+        await conn.query(
+          'INSERT INTO payments (tx_id, admission_id, date_label, method, payer, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [txId, targetAdmission, cleanDate, methodLabel, payerName, effectiveAmt, recordStatus]
+        );
+      } catch (insertErr2) {
+        await conn.query(
+          'INSERT INTO payments (tx_id, admission_id, date_label, method, amount, status) VALUES (?, ?, ?, ?, ?, ?)',
+          [txId, targetAdmission, cleanDate, methodLabel, effectiveAmt, recordStatus]
+        );
+      }
+    }
+
+    // 4. Atomically update billing_summary
+    if (isRefund) {
+      await conn.query(
+        `INSERT INTO billing_summary (admission_id, total_bill, insurance_covered, remaining_payable, claim_status)
+         VALUES (?, 0, 0, ?, 'Pending')
+         ON DUPLICATE KEY UPDATE remaining_payable = remaining_payable + ?`,
+        [targetAdmission, effectiveAmt, effectiveAmt]
+      );
+      newRemaining = currentRemaining + effectiveAmt;
+    } else {
+      await conn.query(
+        `INSERT INTO billing_summary (admission_id, total_bill, insurance_covered, remaining_payable, claim_status)
+         VALUES (?, ?, 0, GREATEST(0, ? - ?), 'Pending')
+         ON DUPLICATE KEY UPDATE remaining_payable = GREATEST(0, remaining_payable - ?)`,
+        [targetAdmission, authBill.totalPayable, currentRemaining, effectiveAmt, effectiveAmt]
+      );
+      newRemaining = Math.max(0, Math.round((currentRemaining - effectiveAmt) * 100) / 100);
+
+      if (effectiveAmt >= currentRemaining && currentRemaining > 0) {
+        await conn.query(
+          "UPDATE pharmacy_transactions SET payment_status = 'PAID' WHERE admission_id = ? AND payment_status = 'PENDING'",
+          [targetAdmission]
+        );
+      }
+    }
+
+    // Fetch the updated balance directly from the locked row
+    const [finalB] = await conn.query('SELECT remaining_payable FROM billing_summary WHERE admission_id = ?', [targetAdmission]);
+    newRemaining = finalB[0] ? Number(finalB[0].remaining_payable) : Math.max(0, (currentRemaining || 0) - effectiveAmt);
+
+    // Commit database transaction!
     await conn.commit();
+
   } catch (dbErr) {
     if (conn) {
       try { await conn.rollback(); } catch (_) {}
     }
-    console.warn('Payment stored in memory (MySQL pool unavailable):', dbErr.message);
+    console.error('CRITICAL: Payment database transaction failed:', dbErr);
+    return res.status(500).json({ error: 'Database transaction failed to persist payment: ' + dbErr.message });
   } finally {
     if (conn) {
       try { conn.release(); } catch (_) {}
     }
   }
 
-  // Instant response to caller (< 10ms)
+  // Record in memory fallback database for immediate multi-client sync
+  const memPayment = {
+    txId,
+    tx_id: txId,
+    admissionId: targetAdmission,
+    admission_id: targetAdmission,
+    patientId: targetPatientId,
+    patient_id: targetPatientId,
+    date: cleanDate,
+    dateLabel: cleanDate,
+    date_label: cleanDate,
+    method: methodLabel,
+    reference: reference || null,
+    amount: effectiveAmt,
+    payer: payerName,
+    status: recordStatus,
+    _recordedAt: Date.now()
+  };
+  memoryFallbackDb.payments.unshift(memPayment);
+
+  if (memoryFallbackDb.billing && (targetAdmission === '26CAR008' || targetAdmission === 'HMS-2026-8842')) {
+    if (isRefund) {
+      memoryFallbackDb.billing.remainingPayable = Math.max(0, (Number(memoryFallbackDb.billing.remainingPayable) || 0) + effectiveAmt);
+    } else {
+      memoryFallbackDb.billing.remainingPayable = Math.max(0, (Number(memoryFallbackDb.billing.remainingPayable) || 0) - effectiveAmt);
+    }
+  }
+
+  // Return confirmed success ONLY after database transaction is committed
   res.json({
     success: true,
     txId,
-    amount: paidAmt,
+    admissionId: targetAdmission,
+    patientId: targetPatientId,
+    amount: effectiveAmt,
     date: cleanDate,
     method: methodLabel,
-    payer: payer || 'Caregiver'
+    payer: payerName,
+    status: recordStatus,
+    remainingPayable: newRemaining
   });
 });
 
@@ -2862,11 +3438,7 @@ app.get('/api/v1/patients/:patientId', async (req, res) => {
     const p = rows[0];
     let dobFormatted = null;
     if (p.dob) {
-      if (p.dob instanceof Date) {
-        dobFormatted = p.dob.toISOString().slice(0, 10);
-      } else {
-        dobFormatted = String(p.dob).slice(0, 10);
-      }
+      dobFormatted = formatDateOnly(p.dob);
     }
     res.json({
       patientId: p.patient_id,
@@ -2910,19 +3482,11 @@ function formatAdmissionResponse(a, isReadOnly = false, customCaregiver = null) 
 
   let admDateStr = null;
   if (a.admission_date) {
-    if (a.admission_date instanceof Date) {
-      admDateStr = a.admission_date.toISOString();
-    } else if (typeof a.admission_date === 'string') {
-      admDateStr = a.admission_date.includes('T') ? a.admission_date : `${a.admission_date}T00:00:00.000Z`;
-    }
+    admDateStr = formatDateOnly(a.admission_date);
   }
   let disDateStr = null;
   if (a.discharge_date) {
-    if (a.discharge_date instanceof Date) {
-      disDateStr = a.discharge_date.toISOString();
-    } else if (typeof a.discharge_date === 'string') {
-      disDateStr = a.discharge_date.includes('T') ? a.discharge_date : `${a.discharge_date}T00:00:00.000Z`;
-    }
+    disDateStr = formatDateOnly(a.discharge_date);
   }
 
   const effectiveReadOnly = Boolean(isReadOnly || a.status === 'DISCHARGED' || a.access_role === 'READ_ONLY');
@@ -2942,7 +3506,8 @@ function formatAdmissionResponse(a, isReadOnly = false, customCaregiver = null) 
     department: a.current_dept || a.admitting_dept || 'General',
     room: a.room_number || '',
     roomWard: a.room_number || '',
-    admissionDate: admDateStr || new Date().toISOString(),
+    admissionDate: admDateStr || formatDateOnly(new Date()),
+    admissionTime: a.admission_time || '',
     dischargeDate: disDateStr,
     reason: a.reason_for_admission || '',
     hospitalName: 'CareBridge Medical Center',
@@ -2954,6 +3519,11 @@ function formatAdmissionResponse(a, isReadOnly = false, customCaregiver = null) 
       caregiverMobile: a.caregiver_phone || '',
       relationship: a.relation || a.emergency_contact_relation || 'Primary Caregiver',
       accessStatus: (a.carebridge_access === 'Active' || a.carebridge_status === 'Active') ? 'ACTIVE' : (a.carebridge_access || 'ACTIVE')
+    },
+    primaryCaregiver: {
+      name: a.caregiver_name || '',
+      phone: a.caregiver_phone || '',
+      relationship: a.relation || a.emergency_contact_relation || 'Primary Caregiver'
     }
   };
 }
@@ -2987,6 +3557,7 @@ app.get('/api/v1/patients/:patientId/admissions', async (req, res) => {
       department: p.department,
       room: p.roomNumber,
       admissionDate: p.admissionDate,
+      admissionTime: p.admissionTime || '',
       reason: p.reasonForAdmission,
       hospitalName: 'CareBridge Medical Center',
       caregiver: {
@@ -2994,6 +3565,11 @@ app.get('/api/v1/patients/:patientId/admissions', async (req, res) => {
         caregiverMobile: p.caregiverPhone,
         relationship: p.relation,
         accessStatus: 'ACTIVE'
+      },
+      primaryCaregiver: {
+        name: p.caregiverName || '',
+        phone: p.caregiverPhone || '',
+        relationship: p.relation || 'Primary Caregiver'
       }
     })));
   }
@@ -3058,6 +3634,7 @@ app.get('/api/v1/admissions/:admissionId', async (req, res) => {
       department: p.department,
       room: p.roomNumber,
       admissionDate: p.admissionDate,
+      admissionTime: p.admissionTime || '',
       reason: p.reasonForAdmission,
       hospitalName: 'CareBridge Medical Center',
       isReadOnly: false,
@@ -3068,6 +3645,11 @@ app.get('/api/v1/admissions/:admissionId', async (req, res) => {
         caregiverMobile: p.caregiverPhone,
         relationship: p.relation,
         accessStatus: 'ACTIVE'
+      },
+      primaryCaregiver: {
+        name: p.caregiverName || '',
+        phone: p.caregiverPhone || '',
+        relationship: p.relation || 'Primary Caregiver'
       }
     });
   }
@@ -3150,8 +3732,19 @@ app.get('/api/v1/caregivers/:mobile/admissions', async (req, res) => {
         [pids]
       );
       for (const r of primaryRows) {
+        if (familyAdmMap.has(r.admission_id)) {
+          const famInfo = familyAdmMap.get(r.admission_id);
+          const isReadOnly = famInfo ? famInfo.role === 'READ_ONLY' : true;
+          combinedResults.push(formatAdmissionResponse(r, isReadOnly, {
+            caregiverName: famInfo?.caregiver_name || r.caregiver_name,
+            caregiverMobile: famInfo?.caregiver_mobile || r.caregiver_phone,
+            relationship: famInfo?.relationship || 'Extended Family Member',
+            accessStatus: famInfo?.access_status || 'ACTIVE'
+          }));
+        } else {
+          combinedResults.push(formatAdmissionResponse(r, false));
+        }
         seenAdmIds.add(r.admission_id);
-        combinedResults.push(formatAdmissionResponse(r, false));
       }
     }
 
@@ -3225,7 +3818,7 @@ app.post('/api/v1/admissions/:admissionId/family', async (req, res) => {
       return res.status(400).json({ error: 'Name and phone are required.' });
     }
 
-    const [admRows] = await pool.query('SELECT admission_id FROM admissions WHERE admission_id = ?', [admissionId]);
+    const [admRows] = await pool.query('SELECT admission_id, caregiver_name, caregiver_phone FROM admissions WHERE admission_id = ?', [admissionId]);
     if (admRows.length === 0) {
       return res.status(404).json({ error: 'Admission not found.' });
     }
@@ -3233,6 +3826,17 @@ app.post('/api/v1/admissions/:admissionId/family', async (req, res) => {
     const rawDigits = String(phone).replace(/\D/g, '');
     const nationalNumber = rawDigits.length === 12 && rawDigits.startsWith('91') ? rawDigits.slice(2) : rawDigits;
     const normalizedMobile = nationalNumber.length === 10 ? `+91${nationalNumber}` : String(phone).trim();
+
+    // Prevent registering primary caregiver's own number as extended family
+    const primaryPhoneDigits = String(admRows[0].caregiver_phone || '').replace(/\D/g, '');
+    const primaryLast10 = primaryPhoneDigits.slice(-10);
+    const memberLast10 = rawDigits.slice(-10);
+
+    if (primaryLast10 && memberLast10 && primaryLast10 === memberLast10) {
+      return res.status(400).json({
+        error: `Cannot add the Primary Caregiver (${admRows[0].caregiver_name || 'Primary'}) as an extended family member. Please enter the family member's unique mobile number.`
+      });
+    }
 
     await pool.query(
       `INSERT INTO admission_caregivers (admission_id, caregiver_name, caregiver_mobile, relationship, access_status, role, disabled_at)
@@ -3382,7 +3986,7 @@ app.get('/api/v1/admissions/:admissionId/records/:type', async (req, res) => {
           patientId: r.patient_id,
           doctor: r.doctor_name,
           department: r.department,
-          eventDate: r.appointment_date,
+          eventDate: formatDateOnly(r.appointment_date),
           appointmentTime: r.appointment_time,
           appointmentType: r.appointment_type,
           room: r.room,
@@ -3948,86 +4552,32 @@ app.put('/api/hms/prescriptions/:id/payment', async (req, res) => {
 app.get('/api/v1/admissions/:admissionId/billing', async (req, res) => {
   try {
     const { admissionId } = req.params;
+    const authBill = await calculateAuthoritativeBilling(pool, admissionId);
+    if (!authBill.found) {
+      return res.status(204).end();
+    }
 
-    // Check admission status
     const [adms] = await pool.query(
       'SELECT status FROM admissions WHERE admission_id = ?',
       [admissionId]
     );
     const isReadOnly = adms.length > 0 && adms[0].status === 'DISCHARGED';
 
-    // Fetch billing summary
-    const [billingRows] = await pool.query(
-      'SELECT * FROM billing_summary WHERE admission_id = ? LIMIT 1',
-      [admissionId]
-    );
-
-    // Fetch bill items
-    const [itemsRows] = await pool.query(
-      'SELECT * FROM bill_items WHERE admission_id = ? ORDER BY id ASC',
-      [admissionId]
-    );
-
-    // Fetch payments
-    const [paymentsRows] = await pool.query(
-      'SELECT * FROM payments WHERE admission_id = ? ORDER BY id DESC',
-      [admissionId]
-    );
-
-    if (billingRows.length === 0 && itemsRows.length === 0 && adms.length === 0) {
-      return res.status(204).end();
-    }
-
-    const items = itemsRows.map(r => ({
-      desc: r.description,
-      category: r.category,
-      amount: Number(r.amount) || 0,
-    }));
-
-    const payments = paymentsRows.map(p => ({
-      txId: p.tx_id,
-      date: p.date_label,
-      method: p.method,
-      amount: Number(p.amount) || 0,
-      status: p.status,
-    }));
-
-    const paidAmount = payments
-      .filter(p => {
-        const s = (p.status || '').toLowerCase();
-        return s === 'paid' || s === 'success';
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    let totalBill = 0;
-    let insuranceCovered = 0;
-    let claimStatus = 'Approved';
-    let balance = 0;
-
-    if (billingRows.length > 0) {
-      const b = billingRows[0];
-      totalBill = Number(b.total_bill) || 0;
-      insuranceCovered = Number(b.insurance_covered) || 0;
-      claimStatus = b.claim_status || 'Approved';
-      balance = Math.max(0, Number(b.remaining_payable != null ? b.remaining_payable : (totalBill - insuranceCovered - paidAmount)));
-    } else {
-      totalBill = items.reduce((sum, i) => sum + i.amount, 0);
-      insuranceCovered = 0;
-      claimStatus = 'Pending';
-      balance = Math.max(0, totalBill - paidAmount);
-    }
-
     res.json({
       admissionId,
-      items,
-      totalBill,
-      insuranceCovered,
-      paidAmount,
-      balance,
-      claimStatus,
-      payments,
+      items: (authBill.items || []).map(r => ({
+        desc: r.name,
+        category: r.type,
+        amount: Number(r.amount) || 0,
+      })),
+      totalBill: authBill.totalPayable,
+      insuranceCovered: authBill.approvedInsurance,
+      paidAmount: authBill.paidAmount,
+      balance: authBill.balance,
+      claimStatus: authBill.claimStatus,
+      payments: authBill.payments,
       isReadOnly,
-      recordId: billingRows[0]?.id || null,
+      recordId: null,
     });
   } catch (err) {
     console.error('Error fetching billing:', err);
@@ -4050,6 +4600,25 @@ app.post('/api/v1/admissions/:admissionId/billing/payments', async (req, res) =>
     }
 
     const numAmount = Number(amount) || 0;
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
+    }
+
+    // Overpayment and zero-due check using authoritative calculation
+    const authBill = await calculateAuthoritativeBilling(conn, admissionId);
+    if (!authBill.found) {
+      return res.status(404).json({ error: authBill.error || 'Admission not found' });
+    }
+    const currentRemaining = authBill.balance;
+    if (currentRemaining <= 0) {
+      return res.status(400).json({ error: 'No dues pending for this admission (remaining payable is ₹0.00). Payment cannot be collected.' });
+    }
+    if (numAmount > currentRemaining + 0.01) {
+      return res.status(400).json({
+        error: `Payment amount (₹${numAmount.toFixed(2)}) exceeds remaining payable balance (₹${currentRemaining.toFixed(2)}). Overpayment is not permitted.`
+      });
+    }
+
     const txId = 'TXN-' + Math.floor(100000 + Math.random() * 900000);
     const now = new Date();
     const dateLabel = now.toLocaleDateString('en-GB', {

@@ -121,7 +121,7 @@ let hmsDatabase = {
     ]
   },
   payments: [
-    { txId: 'TXN-991823', date: '13-Aug-2026, 10:30 AM', date_label: '13-Aug-2026, 10:30 AM', dateLabel: '13-Aug-2026, 10:30 AM', method: 'UPI (Google Pay)', amount: 10000.00, status: 'Paid', payer: 'Priya Lakshmi (Caregiver)' }
+    { txId: 'TXN-991823', admissionId: '26CAR001', admission_id: '26CAR001', date: '13-Aug-2026, 10:30 AM', date_label: '13-Aug-2026, 10:30 AM', dateLabel: '13-Aug-2026, 10:30 AM', method: 'UPI (Google Pay)', amount: 10000.00, status: 'Paid', payer: 'Priya Lakshmi (Caregiver)' }
   ]
 };
 
@@ -135,6 +135,13 @@ let backendLabReports = [];
 let backendMedicines = [];
 let backendLabAssignments = [];
 let dutyNurseSelectedInvestigations = [];
+
+function renderDutyNurseLabTags() {
+  const container = document.getElementById('dutyNurseLabTagsContainer');
+  if (container) container.innerHTML = '';
+}
+
+function handleDutyNurseLabSelectChange(value) {}
 let activeAdmissionsLoadInProgress = false;
 
 // Real-Time Cross-App Sync Engine (REST calls to the shared MySQL backend)
@@ -310,7 +317,7 @@ async function loadBackendActiveAdmissions() {
             carebridgeStatus: caregiver.accessStatus === 'ACTIVE' ? 'Active' : 'Not Activated',
             carebridgeAccess: caregiver.accessStatus || 'N/A',
             admissionDate: admission.admissionDate || '',
-            admissionTime: ''
+            admissionTime: admission.admissionTime || ''
           };
         });
     }));
@@ -643,6 +650,9 @@ function renderAllHmsViews() {
   renderLabReports();
   renderPharmacyTransactions();
   renderPaymentLedger();
+  if (document.getElementById('dept-billing')?.classList.contains('active')) {
+    updateOverallBillSummary();
+  }
   inspectTable('patients');
   if (typeof loadAndRenderNurseLabAssignments === 'function') {
     loadAndRenderNurseLabAssignments();
@@ -1625,9 +1635,7 @@ function renderActivePatients() {
     const patientDetails = [ageDisplay, genderDisplay, p.bloodGroup ? `(${p.bloodGroup})` : '', p.patientPhone].filter(Boolean).join(' • ');
 
     // Req 1.5: Format timestamps cleanly without "NA"/"N/A"/null/undefined
-    const admDate = p.admissionDate || (p.createdAt ? formatDateForDisplay(p.createdAt) : '');
-    const admTime = p.admissionTime || '';
-    const formattedAdmissionDateTime = [admDate, admTime].filter(Boolean).join(', ') || '-';
+    const formattedAdmissionDateTime = formatAdmissionDateTime(p.admissionDate || p.createdAt, p.admissionTime);
 
     // Req 1.6: Admission Status and CareBridge Status columns removed from UI
     html += `
@@ -2346,16 +2354,16 @@ function formatTimeForInput(timeVal) {
 
 function formatDateForDisplay(dateVal) {
   if (!dateVal) return '-';
-  const str = String(dateVal);
-  if (str.includes('T')) {
-    const d = new Date(str);
+  const str = String(dateVal).trim();
+  if (str.includes('T') || str.includes(' ')) {
+    const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + (str.includes('Z') ? '' : 'Z'));
     if (!isNaN(d.getTime())) {
       const day = String(d.getDate()).padStart(2, '0');
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const year = d.getFullYear();
-      return `${day}-${month}-${year}`;
+      return `${year}-${month}-${day}`;
     }
-    return str.split('T')[0];
+    return str.split(/[T ]/)[0];
   }
   return str;
 }
@@ -2374,6 +2382,56 @@ function formatTimeForDisplay(timeVal) {
     return `${String(hours).padStart(2, '0')}:${minutes} ${meridiem}`;
   }
   return str;
+}
+
+function formatAdmissionDateTime(dateVal, timeVal) {
+  if (!dateVal && !timeVal) return '-';
+
+  let formattedTime = '';
+  if (timeVal) {
+    formattedTime = formatTimeForDisplay(timeVal);
+  }
+
+  let formattedDate = '';
+  if (dateVal) {
+    const str = String(dateVal).trim();
+    if (/^\d{1,2}-[A-Za-z]{3}-\d{4}/.test(str)) {
+      formattedDate = str;
+    } else {
+      let y, m, d;
+      const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        y = isoMatch[1];
+        m = parseInt(isoMatch[2], 10) - 1;
+        d = isoMatch[3];
+      } else {
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+          y = parsed.getFullYear();
+          m = parsed.getMonth();
+          d = String(parsed.getDate()).padStart(2, '0');
+        }
+      }
+      if (y && m !== undefined && d) {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        formattedDate = `${String(d).padStart(2, '0')}-${monthNames[m]}-${y}`;
+      } else {
+        formattedDate = str.includes('T') ? str.split('T')[0] : str;
+      }
+
+      if (!formattedTime && (str.includes('T') || str.includes(' '))) {
+        const timePart = str.split(/[T ]/)[1];
+        if (timePart && !timePart.startsWith('00:00:00')) {
+          formattedTime = formatTimeForDisplay(timePart);
+        }
+      }
+    }
+  }
+
+  if (formattedDate && formattedTime) {
+    return `${formattedDate}, ${formattedTime}`;
+  }
+  return formattedDate || formattedTime || '-';
 }
 
 function initScheduleDatePicker() {
@@ -2452,9 +2510,12 @@ function updateScheduleDoctorDisplay() {
 
     // Auto-fill visit date as today (read-only) (Req 2.2)
     const dateInput = document.getElementById('scheduleEventDate');
-    if (dateInput && !isEditMode && !dateInput.value) {
+    if (dateInput && !isEditMode) {
       const now = new Date();
-      dateInput.value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
       dateInput.readOnly = true;
     }
 
@@ -3088,7 +3149,10 @@ function resetScheduleForm() {
   const dateInput = document.getElementById('scheduleEventDate');
   if (dateInput) {
     const now = new Date();
-    dateInput.value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    dateInput.value = `${yyyy}-${mm}-${dd}`;
     dateInput.readOnly = true;
   }
 
@@ -3119,7 +3183,9 @@ function resetScheduleForm() {
   if (roomDisplay) roomDisplay.textContent = '-';
 
   dutyNurseSelectedInvestigations = [];
-  renderDutyNurseLabTags();
+  if (typeof renderDutyNurseLabTags === 'function') {
+    renderDutyNurseLabTags();
+  }
   const labSel = document.getElementById('scheduleLabReportSelect');
   if (labSel) {
     labSel.value = '';
@@ -3195,15 +3261,21 @@ async function handleSaveSchedule() {
     if (existing?.patientId) patientId = existing.patientId;
   }
 
-  const payload = {
-    id: isEdit ? (Number(recordId) || recordId) : undefined,
-    recordId: isEdit ? (Number(recordId) || recordId) : undefined,
-    admissionId,
-    patientId,
-    doctorName: doctor,
-    department: patientDept,
-    appointmentDate: dateInput.value || new Date().toISOString().slice(0, 10),
-    appointmentTime: formatTimeForDisplay(timeInput.value),
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+
+    const payload = {
+      id: isEdit ? (Number(recordId) || recordId) : undefined,
+      recordId: isEdit ? (Number(recordId) || recordId) : undefined,
+      admissionId,
+      patientId,
+      doctorName: doctor,
+      department: patientDept,
+      appointmentDate: isEdit ? (dateInput?.value || todayStr) : todayStr,
+      appointmentTime: formatTimeForDisplay(timeInput.value),
     appointmentType: (typeInput && typeInput.value.trim()) || (admission ? admission.reasonForAdmission : 'Regular Physician Visit'),
     room: finalRoom,
     status: finalStatus,
@@ -4727,6 +4799,8 @@ let tpaInsuranceState = {
 };
 let finalBillGenerated = false;
 let finalBillInvoiceNo = '';
+let currentCalculatedRemainingPayable = 0;
+let currentCalculatedCreditBalance = 0;
 
 /**
  * Clean Date Formatter for Ledger & Billing Records
@@ -4870,8 +4944,10 @@ function calculateRoomStayCharges(patientIdOrAdmissionId) {
   transfers.sort((a, b) => new Date(a.transferDate || 0) - new Date(b.transferDate || 0));
 
   // Determine check-in date
-  let admissionDateStr = admission.admissionDate || admission.created_at || '2026-10-18';
+  let rawDate = admission.admissionDate || admission.created_at || '2026-10-18';
+  let admissionDateStr = String(rawDate).includes('T') ? String(rawDate).split('T')[0] : String(rawDate);
   let admissionTimeStr = admission.admissionTime || '09:00:00';
+  if (admissionTimeStr.length === 5) admissionTimeStr += ':00';
   let checkInTime = new Date(`${admissionDateStr}T${admissionTimeStr}`);
   if (isNaN(checkInTime.getTime())) {
     checkInTime = new Date(Date.now() - 3 * 86400000); // 3 days ago default
@@ -5059,7 +5135,7 @@ function refreshAggregatedDraftInvoice(manualSync = false) {
     });
   }
 
-  // 2. Doctor Ward Visits & Consultations (Module 3)
+  // 2. Doctor Ward Visits & Consultations (Module 3 - Strictly Persisted Only)
   const patientTreatments = (hmsDatabase.treatments || []).filter(t => !admissionId || t.admissionId === admissionId);
   if (patientTreatments.length > 0) {
     patientTreatments.forEach((trt, idx) => {
@@ -5079,23 +5155,9 @@ function refreshAggregatedDraftInvoice(manualSync = false) {
         sourceModule: 'Module 3: Doctor'
       });
     });
-  } else {
-    // Default standard consultation charge
-    items.push({
-      id: 'DOC-CONS-1',
-      type: 'Service',
-      name: 'Specialist Inpatient Physician Consultation',
-      provider: 'Dr. Aris Thorne (Cardiology)',
-      qty: 1,
-      qtyText: '1 Visit',
-      rate: 12000.00,
-      taxPercent: 0,
-      amount: 12000.00,
-      sourceModule: 'Module 3: Doctor'
-    });
   }
 
-  // 3. Laboratory Tests & Diagnostics (Module 4)
+  // 3. Laboratory Tests & Diagnostics (Module 4 - Strictly Persisted Only)
   const patientLabs = (hmsDatabase.labReports || []).filter(l => !admissionId || l.admissionId === admissionId);
   if (patientLabs.length > 0) {
     patientLabs.forEach((lab, idx) => {
@@ -5119,22 +5181,9 @@ function refreshAggregatedDraftInvoice(manualSync = false) {
         sourceModule: 'Module 4: Laboratory'
       });
     });
-  } else {
-    items.push({
-      id: 'LAB-DEFAULT',
-      type: 'Lab',
-      name: 'Complete Blood Count (CBC) & Serum Troponin T',
-      provider: 'Central Diagnostics Lab',
-      qty: 1,
-      qtyText: '1 Test',
-      rate: 8000.00,
-      taxPercent: 0,
-      amount: 8000.00,
-      sourceModule: 'Module 4: Laboratory'
-    });
   }
 
-  // 4. Pharmacy & Medication Dispense (Module 5)
+  // 4. Pharmacy & Medication Dispense (Module 5 - Strictly Persisted Only)
   const patientRx = (hmsDatabase.prescriptions || []).filter(r => !admissionId || r.admissionId === admissionId);
   if (patientRx.length > 0) {
     patientRx.forEach((rx, idx) => {
@@ -5157,23 +5206,12 @@ function refreshAggregatedDraftInvoice(manualSync = false) {
         sourceModule: 'Module 5: Pharmacy'
       });
     });
-  } else {
-    items.push({
-      id: 'PHARM-DEFAULT',
-      type: 'Pharmacy',
-      name: 'Pharmacy & IV Medication Package (Ceftriaxone & Atorvastatin)',
-      provider: 'Inpatient Central Pharmacy',
-      qty: 1,
-      qtyText: '1 Pack',
-      rate: 8500.00,
-      taxPercent: 5,
-      amount: 8925.00,
-      sourceModule: 'Module 5: Pharmacy'
-    });
   }
 
-  // 5. Append existing items from hmsDatabase.billing.items if not already covered
+  // 5. Append custom items from hmsDatabase.billing.items (strictly scoped to this admission)
   (hmsDatabase.billing.items || []).forEach((bItem, idx) => {
+    const bAdm = bItem.admissionId || bItem.admission_id;
+    if (!bAdm || bAdm !== admissionId) return; // Never leak items across patients!
     if (bItem.category === 'Room Rent') return; // Handled by roomStayLogs
     if (bItem.category === 'Consultation' && patientTreatments.length > 0) return;
     if (bItem.category === 'Diagnostics' && patientLabs.length > 0) return;
@@ -5398,18 +5436,87 @@ function showPaymentAlert(msg, type = 'success') {
   }, 6000);
 }
 
+let backendAuthoritativeBill = null;
+
+/**
+ * Authoritative Backend Billing Loader
+ * Fetches the verified billing calculation and line items directly from /api/hms/billing
+ */
+async function loadAdmissionBilling(admissionId) {
+  if (!admissionId) return null;
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/billing?admissionId=${encodeURIComponent(admissionId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.admissionId === admissionId) {
+        backendAuthoritativeBill = data;
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          draftInvoiceItems = data.items;
+        }
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch authoritative billing from backend:', err);
+  }
+  return null;
+}
+
+/**
+ * Authoritative Backend Payment Loader
+ * Loads persisted payments for the selected admission directly from MySQL via REST API.
+ */
+async function loadAdmissionPayments(admissionId) {
+  if (!admissionId) return [];
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/payments?admissionId=${encodeURIComponent(admissionId)}`);
+    if (res.ok) {
+      const payments = await res.json();
+      if (Array.isArray(payments)) {
+        // Keep payments for OTHER admissions, replace/merge payments for this admission
+        const otherPayments = (hmsDatabase.payments || []).filter(p => {
+          const adm = p.admissionId || p.admission_id;
+          return adm && adm !== admissionId;
+        });
+        hmsDatabase.payments = [...payments, ...otherPayments];
+        return payments;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch admission payments from backend:', err);
+  }
+  return [];
+}
+
 function renderPaymentLedger() {
   const tbody = document.getElementById('paymentLedgerTbody');
   if (!tbody) return;
 
-  const payments = hmsDatabase.payments || [];
+  const currentAdm = billingActiveAdmissionId || (billingPatientContext ? billingPatientContext.admissionId : '');
+  const allPayments = hmsDatabase.payments || [];
+  const payments = allPayments.filter(p => {
+    if (!currentAdm) return false;
+    const pAdm = p.admissionId || p.admission_id;
+    return pAdm === currentAdm;
+  });
+
   if (payments.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 16px;">No transactions recorded in ledger.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 14px;">No transactions recorded for active admission.</td></tr>`;
     return;
   }
 
+  // Sort newest first
+  payments.sort((a, b) => {
+    const idA = Number(a.id) || 0;
+    const idB = Number(b.id) || 0;
+    if (idA && idB && idA !== idB) return idB - idA;
+    const tA = (a.created_at ? new Date(a.created_at).getTime() : 0) || a._clientTimestamp || 0;
+    const tB = (b.created_at ? new Date(b.created_at).getTime() : 0) || b._clientTimestamp || 0;
+    return tB - tA;
+  });
+
   let html = '';
-  payments.forEach((p, idx) => {
+  payments.forEach((p) => {
     // Extract and permanently freeze date so it never runs like a dynamic clock
     const rawDate = p.date || p.date_label || p.dateLabel || p.paidAt || p.paid_at || p.timestamp || p.created_at;
     const cleanDate = formatLedgerDate(rawDate, '13-Aug-2026, 10:30 AM');
@@ -5419,27 +5526,36 @@ function renderPaymentLedger() {
 
     const amountNum = Number(p.amount) || 0;
     const mode = p.method || 'UPI / NetBanking';
-    const refPayer = p.payer || p.reference || (billingPatientContext ? billingPatientContext.caregiverName + ' (Caregiver)' : 'Sarah Vance (Caregiver)');
+    const refPayer = p.payer || p.reference || (billingPatientContext ? (billingPatientContext.caregiverName ? billingPatientContext.caregiverName + ' (Caregiver)' : billingPatientContext.fullName) : 'Caregiver');
     const isNewRow = p._isNew ? 'row-highlight-new' : '';
 
     let modeIcon = '<i class="fa-solid fa-qrcode" style="color: #0284c7;"></i>';
     if (mode.toLowerCase().includes('card')) modeIcon = '<i class="fa-solid fa-credit-card" style="color: #7c3aed;"></i>';
     if (mode.toLowerCase().includes('cash')) modeIcon = '<i class="fa-solid fa-money-bill-wave" style="color: #10b981;"></i>';
+    if (mode.toLowerCase().includes('refund')) modeIcon = '<i class="fa-solid fa-arrow-rotate-left" style="color: #ef4444;"></i>';
+
+    const isRefund = (p.status || '').toLowerCase() === 'refunded' || String(p.txId || p.tx_id || '').startsWith('RFND-') || amountNum < 0;
+    const statusBadge = isRefund
+      ? '<span class="badge badge-warning" style="background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;"><i class="fa-solid fa-arrow-rotate-left"></i> Refunded</span>'
+      : '<span class="badge badge-success"><i class="fa-solid fa-check"></i> ' + escapeHtml(p.status || 'Paid') + '</span>';
+
+    const amountDisplay = isRefund
+      ? `<span style="font-weight: 700; color: #dc2626;">-₹${Math.abs(amountNum).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>`
+      : `<span style="font-weight: 700; color: var(--emerald-success);">₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>`;
 
     html += `
       <tr class="${isNewRow}">
-        <td><code>${escapeHtml(p.txId || 'TXN-000000')}</code></td>
+        <td><code>${escapeHtml(p.txId || p.tx_id || 'TXN-000000')}</code></td>
         <td style="font-weight: 500; white-space: nowrap;">${cleanDate}</td>
         <td><span style="display: flex; align-items: center; gap: 6px; font-weight: 600;">${modeIcon} ${escapeHtml(mode)}</span></td>
-        <td style="font-size: 12px; color: #334155;">${escapeHtml(refPayer)}</td>
-        <td style="font-weight: 700; color: var(--emerald-success);">₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-        <td><span class="badge badge-success">${escapeHtml(p.status || 'Paid')}</span></td>
+        <td style="font-size: 11.5px; color: #334155;">${escapeHtml(refPayer)}</td>
+        <td style="text-align: right;">${amountDisplay}</td>
+        <td style="text-align: center;">${statusBadge}</td>
       </tr>
     `;
   });
 
   tbody.innerHTML = html;
-  updateOverallBillSummary();
 
   // Clear transient highlight flags
   setTimeout(() => {
@@ -5449,9 +5565,14 @@ function renderPaymentLedger() {
 
 /**
  * Collect Payment Widget Handler: Process Payment
- * - Instant (0ms) in-memory update and immediate ledger reflection
- * - Strict duplicate payment prevention (guards against fast double-clicks and identical submissions)
- * - Non-blocking asynchronous backend sync
+ * Strict 7-Step Workflow (Requirement 5):
+ * 1. Validate the form.
+ * 2. Submit the payment once.
+ * 3. Wait for confirmed backend success.
+ * 4. Fetch the updated payment ledger and billing summary from the backend.
+ * 5. Update the UI using the returned persisted data.
+ * 6. Clear the form only after success.
+ * 7. Show the confirmed transaction ID and amount.
  */
 async function handleCollectPayment() {
   if (isPaymentProcessing) {
@@ -5469,6 +5590,7 @@ async function handleCollectPayment() {
   const modeRadios = document.getElementsByName('collectPayMode');
   const processBtn = document.getElementById('btnProcessPayment');
 
+  // Step 1: Validate Form
   const payer = (payerInput?.value || '').trim();
   if (!payer) {
     showPaymentAlert('⚠️ Please enter Payer / Caregiver Name before submitting.', 'warning');
@@ -5476,9 +5598,23 @@ async function handleCollectPayment() {
     return;
   }
 
-  const amount = parseFloat(amtInput?.value || 0);
-  if (!amount || amount <= 0) {
+  const rawAmount = parseFloat(amtInput?.value || 0);
+  if (isNaN(rawAmount) || rawAmount <= 0) {
     showPaymentAlert('⚠️ Please enter a valid positive payment amount.', 'warning');
+    amtInput?.focus();
+    return;
+  }
+
+  const amount = Math.round(rawAmount * 100) / 100;
+
+  // Authoritative Remaining Balance Check
+  if (currentCalculatedRemainingPayable <= 0) {
+    showPaymentAlert('⚠️ No dues are pending for this admission. Payment cannot be collected.', 'warning');
+    return;
+  }
+
+  if (amount > currentCalculatedRemainingPayable + 0.01) {
+    showPaymentAlert(`⚠️ <strong>Overpayment Blocked:</strong> Payment amount of ₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} exceeds the remaining payable balance of ₹${currentCalculatedRemainingPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. Overpayment is not permitted.`, 'warning');
     amtInput?.focus();
     return;
   }
@@ -5488,12 +5624,16 @@ async function handleCollectPayment() {
     if (r.checked) selectedMode = r.value;
   });
 
-  // Duplicate Payment Guard: Prevent same payer & amount within 15 seconds
+  const targetAdmission = billingActiveAdmissionId || (billingPatientContext ? billingPatientContext.admissionId : '26CAR001');
+
+  // Duplicate Payment Guard: Prevent same payer & amount within 8 seconds
   const nowMs = Date.now();
-  const isDuplicate = (hmsDatabase.payments || []).slice(0, 5).some(p => {
-    return Math.abs(Number(p.amount) - amount) < 0.01 &&
+  const isDuplicate = (hmsDatabase.payments || []).slice(0, 8).some(p => {
+    const adm = p.admissionId || p.admission_id;
+    return (adm === targetAdmission) &&
+           Math.abs(Number(p.amount) - amount) < 0.01 &&
            String(p.payer || '').trim().toLowerCase() === payer.toLowerCase() &&
-           (nowMs - (p._clientTimestamp || 0) < 15000);
+           (nowMs - (p._clientTimestamp || 0) < 8000);
   });
 
   if (isDuplicate) {
@@ -5501,90 +5641,155 @@ async function handleCollectPayment() {
     return;
   }
 
-  // 1. Lock submission & set button to active processing state
+  // Step 2: Submit the payment once (lock UI)
   isPaymentProcessing = true;
   if (processBtn) {
     processBtn.disabled = true;
-    processBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing &amp; Syncing...';
+    processBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing &amp; Persisting...';
   }
 
-  // 2. Generate transaction identifiers
-  const newTxId = 'TXN-' + Math.floor(100000 + Math.random() * 900000);
-  const autoRef = selectedMode.includes('UPI') ? 'UPI-' + nowMs : 'CTR-' + Math.floor(100000 + Math.random() * 900000);
-  const now = new Date();
-  const formattedDate = formatLedgerDate(now);
-
-  const newPayment = {
-    txId: newTxId,
-    admissionId: billingActiveAdmissionId || '26CAR008',
-    date: formattedDate,
-    date_label: formattedDate,
-    dateLabel: formattedDate,
-    method: selectedMode,
-    reference: autoRef,
-    payer: payer,
-    amount: amount,
-    status: 'Paid',
-    _clientTimestamp: nowMs,
-    _isNew: true
-  };
-
-  // 3. INSTANT (0ms) In-Memory Update & UI Reflection
-  hmsDatabase.payments.unshift(newPayment);
-
-  // Clear input fields immediately
-  if (amtInput) amtInput.value = '';
-  if (payerInput) payerInput.value = '';
-
-  // Render ledger and summary immediately (No lag or delay!)
-  renderPaymentLedger();
-  updateOverallBillSummary();
-
-  // Show instant success banner without blocking alert dialog
-  showPaymentAlert(`✅ <strong>Payment Processed Instantly!</strong> Txn ID: <code>${newTxId}</code> | Amount: <strong>₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> (${selectedMode}) | Payer: <strong>${escapeHtml(payer)}</strong>`, 'success');
-
-  // 4. Background Non-blocking Server Sync (3.5s timeout)
-  const syncPayload = {
-    admissionId: billingActiveAdmissionId || '26CAR008',
+  const payload = {
+    admissionId: targetAdmission,
+    patientId: billingPatientContext?.patientId || null,
     method: selectedMode,
     amount: amount,
-    reference: autoRef,
-    payer: payer,
-    date: formattedDate,
-    txId: newTxId
+    payer: payer
   };
 
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), 3500);
+  // Step 3: Wait for confirmed backend success
+  let result;
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/payments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-  fetch(`${HMS_API_BASE}/api/hms/payments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(syncPayload),
-    signal: abortController.signal
-  }).then(async res => {
-    clearTimeout(timeoutId);
-    saveHmsDatabase();
-  }).catch(err => {
-    clearTimeout(timeoutId);
-    console.warn('Backend payment sync fallback:', err.message);
-    saveHmsDatabase();
-  });
+    result = await res.json().catch(() => ({}));
 
-  // 5. Cooldown re-enable button after 1.5 seconds
-  setTimeout(() => {
+    if (!res.ok || !result.success) {
+      const errMsg = result.error || `Payment processing failed on server (HTTP ${res.status}).`;
+      showPaymentAlert(`❌ <strong>Payment Failed:</strong> ${escapeHtml(errMsg)}`, 'error');
+      isPaymentProcessing = false;
+      if (processBtn) {
+        processBtn.disabled = false;
+        processBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance';
+      }
+      return;
+    }
+  } catch (netErr) {
+    showPaymentAlert(`❌ <strong>Network / Server Error:</strong> Could not reach billing server (${escapeHtml(netErr.message)}). Transaction was NOT recorded.`, 'error');
     isPaymentProcessing = false;
     if (processBtn) {
       processBtn.disabled = false;
       processBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance';
     }
-  }, 1500);
+    return;
+  }
+
+  // Step 4: Fetch updated payment ledger and authoritative billing from backend
+  const [updatedBill] = await Promise.all([
+    loadAdmissionBilling(targetAdmission),
+    loadAdmissionPayments(targetAdmission)
+  ]);
+  await loadHmsDatabase();
+
+  // Step 5: Update the UI using returned persisted data
+  if (result.remainingPayable !== undefined && hmsDatabase.billing) {
+    hmsDatabase.billing.remainingPayable = Number(result.remainingPayable);
+  }
+
+  const confirmedTxId = result.txId;
+  const targetPayment = (hmsDatabase.payments || []).find(p => (p.txId === confirmedTxId || p.tx_id === confirmedTxId));
+  if (targetPayment) {
+    targetPayment._isNew = true;
+  }
+
+  renderDraftInvoiceTable();
+  renderPaymentLedger();
+  updateOverallBillSummary(updatedBill);
+
+  // Step 6: Clear the form only after success
+  if (amtInput) amtInput.value = '';
+
+  // Step 7: Show confirmed transaction ID and amount
+  const confirmedAmt = Number(result.amount != null ? result.amount : amount);
+  showPaymentAlert(`✅ <strong>Payment Processed Successfully!</strong> Txn ID: <code>${escapeHtml(confirmedTxId)}</code> | Amount: <strong>₹${confirmedAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> (${escapeHtml(result.method || selectedMode)}) | Payer: <strong>${escapeHtml(result.payer || payer)}</strong>`, 'success');
+
+  isPaymentProcessing = false;
+  if (processBtn) {
+    if (currentCalculatedRemainingPayable <= 0) {
+      processBtn.disabled = true;
+      processBtn.innerHTML = '<i class="fa-solid fa-check-double"></i> No Dues Pending';
+    } else {
+      processBtn.disabled = false;
+      processBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance';
+    }
+  }
+}
+
+/**
+ * Authorized Hospital Refund Workflow
+ * Explicit, auditable refund transaction when a genuine credit balance exists.
+ */
+async function handleInitiateAuthorizedRefund() {
+  if (!activeStaff.allowedDepts.includes('billing')) {
+    alert(`Access Denied: Logged in as ${activeStaff.name} (${activeStaff.title}).\nOnly Billing Officers can issue authorized refunds.`);
+    return;
+  }
+
+  if (currentCalculatedCreditBalance <= 0) {
+    alert('No genuine credit balance exists for this patient.');
+    return;
+  }
+
+  const patientName = billingPatientContext?.fullName || 'Active Patient';
+  const targetAdmission = billingActiveAdmissionId || (billingPatientContext ? billingPatientContext.admissionId : '26CAR001');
+  const refundAmount = currentCalculatedCreditBalance;
+
+  const confirmMsg = `AUTHORIZED HOSPITAL REFUND\n\nPatient: ${patientName} (${targetAdmission})\nRefund Amount: ₹${refundAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nAuthorized Officer: ${activeStaff.name}\n\nDo you want to process and record this refund?`;
+  if (!confirm(confirmMsg)) return;
+
+  const payer = billingPatientContext?.caregiverName ? `${billingPatientContext.caregiverName} (Caregiver)` : 'Caregiver';
+
+  try {
+    const res = await fetch(`${HMS_API_BASE}/api/hms/payments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        admissionId: targetAdmission,
+        patientId: billingPatientContext?.patientId || null,
+        method: 'Refund (Counter Reversal)',
+        amount: -refundAmount,
+        status: 'Refunded',
+        payer: payer,
+        isRefund: true
+      })
+    });
+
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result.success) {
+      alert(`Refund failed: ${result.error || 'Server error occurred'}`);
+      return;
+    }
+
+    // Reload persisted records
+    await loadAdmissionPayments(targetAdmission);
+    await loadHmsDatabase();
+
+    renderPaymentLedger();
+    updateOverallBillSummary();
+
+    alert(`Authorized Refund Recorded Successfully!\nTxn ID: ${result.txId}\nAmount: ₹${refundAmount.toFixed(2)}\nPatient credit balance has been cleared.`);
+  } catch (err) {
+    alert(`Refund request failed: ${err.message}`);
+  }
 }
 
 /**
  * 4. CASHLESS INSURANCE & TPA CLAIM PIPELINE
  * Fields: TPA/Insurer Name, Policy ID, Claim / Pre-Auth ID, Pre-Auth Approved Amount, Approved Amount, Co-pay Amount.
- * Visual Pipeline Status Bar: Claim Submitted -> Approval Pending -> Co-pay Pending -> Finalized.
+ * Visual Pipeline Status Bar: Claim Submitted -> Under Review -> Approved -> Settled.
  */
 function setTpaPipelineStage(stage) {
   tpaInsuranceState.stage = stage;
@@ -5606,11 +5811,11 @@ function setTpaPipelineStage(stage) {
         btn.querySelector('.tpa-step-icon').innerHTML = '<i class="fa-solid fa-check"></i>';
       } else if (idx === currentIndex) {
         btn.classList.add('active');
-        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-coins', 'fa-circle-check'];
+        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-circle-check', 'fa-handshake'];
         btn.querySelector('.tpa-step-icon').innerHTML = `<i class="fa-solid ${icons[idx]}"></i>`;
       } else {
         btn.classList.add('pending');
-        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-coins', 'fa-circle-check'];
+        const icons = ['fa-file-arrow-up', 'fa-hourglass-half', 'fa-circle-check', 'fa-handshake'];
         btn.querySelector('.tpa-step-icon').innerHTML = `<i class="fa-solid ${icons[idx]}"></i>`;
       }
     });
@@ -5619,16 +5824,27 @@ function setTpaPipelineStage(stage) {
   if (badgeEl) {
     if (stage === 'Submitted') {
       badgeEl.className = 'badge badge-info';
-      badgeEl.innerText = 'Claim Submitted';
+      badgeEl.innerText = 'Submitted';
     } else if (stage === 'Under Review') {
       badgeEl.className = 'badge badge-warning';
-      badgeEl.innerText = 'Approval Pending';
+      badgeEl.innerText = 'Under Review';
     } else if (stage === 'Approved') {
-      badgeEl.className = 'badge badge-info';
-      badgeEl.innerText = 'Co-pay Pending';
+      badgeEl.className = 'badge badge-success';
+      badgeEl.innerText = 'Claim Approved';
     } else if (stage === 'Settled') {
       badgeEl.className = 'badge badge-success';
-      badgeEl.innerText = 'Finalized';
+      badgeEl.innerText = 'Settled (Finalized)';
+    }
+  }
+
+  const appNote = document.getElementById('tpaApplicationNote');
+  if (appNote) {
+    if (stage === 'Approved' || stage === 'Settled') {
+      appNote.innerText = '✓ Claim approved and deducted from patient payable balance.';
+      appNote.style.color = '#166534';
+    } else {
+      appNote.innerText = '(Pending approval — not deducted until approved by TPA)';
+      appNote.style.color = '#b45309';
     }
   }
 
@@ -5651,6 +5867,10 @@ function handleTpaFieldChange() {
   if (approvedInput) tpaInsuranceState.approvedAmount = parseFloat(approvedInput.value || 0);
   if (copayInput) tpaInsuranceState.copayAmount = parseFloat(copayInput.value || 0);
 
+  const netApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const dispEl = document.getElementById('tpaNetApprovedDisplay');
+  if (dispEl) dispEl.innerText = `₹${netApproved.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
   hmsDatabase.billing.insuranceCovered = tpaInsuranceState.approvedAmount;
   updateOverallBillSummary();
 }
@@ -5664,22 +5884,23 @@ function handleUpdateInsuranceStatus() {
   handleTpaFieldChange();
   saveHmsDatabase();
 
-  alert(`Cashless Insurance & TPA Pipeline Updated!\nInsurer: ${tpaInsuranceState.insurerName}\nPre-Auth Approved: ₹${tpaInsuranceState.approvedAmount.toFixed(2)}\nStatus: ${tpaInsuranceState.stage}`);
+  const isApproved = tpaInsuranceState.stage === 'Approved' || tpaInsuranceState.stage === 'Settled';
+  alert(`Cashless Insurance & TPA Pipeline Updated!\nInsurer: ${tpaInsuranceState.insurerName}\nPre-Auth Approved: ₹${tpaInsuranceState.approvedAmount.toFixed(2)}\nStatus: ${tpaInsuranceState.stage}\n${isApproved ? 'Approved amount applied to bill.' : 'Claim pending approval (not yet deducted).'}`);
 }
 
 /**
- * 5. OVERALL BILL SUMMARY & QUICK ACTIONS PANEL
- * Real-time financial metrics:
- * - Gross Charges
- * - Total Discount
- * - Total Payable = Gross - Discount
- * - Advanced Deposit Paid
- * - Insurance Pre-Auth Approved
- * - Payments Received
- * - Net Payable Balance (Prominently highlighted)
- * - Dynamic Discharge Checklist (5 indicators)
+ * 5. OVERALL BILL SUMMARY & STRICT FINANCIAL RECONCILIATION
+ * Authoritative hospital billing rules:
+ * - Gross Charges = Sum of item rate * qty
+ * - Total Tax = Sum of item line GST
+ * - Total Payable = Gross Charges + Total Tax
+ * - Approved Insurance = Deducted ONLY if claim status is Approved or Settled (never if Submitted or Under Review)
+ * - Advance Deposit Applied = Allocated deposits applied up to remaining charges
+ * - Payments Received = Filtered strictly for the active admission, minus refunds
+ * - Remaining Payable Balance = Net patient responsibility remaining to collect
+ * - Genuine Credit Balance = If patient payments exceed patient responsibility, shown separately with authorized refund option
  */
-function updateOverallBillSummary() {
+function updateOverallBillSummary(backendBill = null) {
   const grossEl = document.getElementById('summaryGrossCharges');
   const taxEl = document.getElementById('summaryTotalTax');
   const payableEl = document.getElementById('summaryTotalPayable');
@@ -5690,49 +5911,111 @@ function updateOverallBillSummary() {
   const bannerEl = document.getElementById('netBalanceBanner');
   const badgeEl = document.getElementById('netBalanceBadge');
   const billStatusTag = document.getElementById('billStatusTag');
+  const creditPanel = document.getElementById('creditBalancePanel');
+  const creditAmtEl = document.getElementById('creditBalanceAmount');
+  const collectDueBadge = document.getElementById('collectDueBadge');
+  const amtInput = document.getElementById('collectPayAmount');
+  const processBtn = document.getElementById('btnProcessPayment');
 
-  // Strict Financial Calculation:
-  // 1. Calculate Gross Charges & Item Tax
-  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
-  const totalTax = draftInvoiceItems.reduce((acc, item) => {
-    const lineSubtotal = Number(item.rate) * Number(item.qty);
-    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
-  }, 0);
+  const currentAdm = billingActiveAdmissionId || (billingPatientContext ? billingPatientContext.admissionId : '26CAR001');
 
-  // 2. Total Payable (Gross + Tax)
-  const totalPayable = grossCharges + totalTax;
+  const bill = (backendBill && backendBill.admissionId === currentAdm)
+    ? backendBill
+    : ((backendAuthoritativeBill && backendAuthoritativeBill.admissionId === currentAdm) ? backendAuthoritativeBill : null);
 
-  // 3. Deductions (Advance + Net Insurance Approved + Ledger Payments)
-  // Insurance Net = Approved Amount - Co-pay
-  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
-  const advance = advanceDepositAmount || 0;
+  let grossCharges = 0;
+  let totalTax = 0;
+  let totalPayable = 0;
+  let approvedInsuranceApplied = 0;
+  let isInsuranceApproved = false;
+  let rawNetInsurance = 0;
+  let depositApplied = 0;
+  let netPaymentsReceived = 0;
+  let netPayableBalance = 0;
+  let genuineCreditBalance = 0;
 
-  let totalPaymentsReceived = 0;
-  (hmsDatabase.payments || []).forEach(p => {
-    totalPaymentsReceived += Number(p.amount) || 0;
-  });
+  if (bill) {
+    grossCharges = Number(bill.grossCharges || 0);
+    totalTax = Number(bill.totalTax || 0);
+    totalPayable = Number(bill.totalPayable || 0);
+    isInsuranceApproved = (bill.claimStatus === 'Approved' || bill.claimStatus === 'Settled');
+    rawNetInsurance = Number(bill.insuranceCovered || 0);
+    approvedInsuranceApplied = Number(bill.approvedInsurance || (isInsuranceApproved ? rawNetInsurance : 0));
+    depositApplied = Number(bill.depositApplied != null ? bill.depositApplied : 5000.00);
+    netPaymentsReceived = Number(bill.paidAmount || 0);
+    netPayableBalance = Number(bill.balance != null ? bill.balance : bill.remainingPayable);
+    genuineCreditBalance = Number(bill.creditBalance || 0);
+  } else {
+    // 1. Authoritative Billable Gross Charges & GST from draftInvoiceItems
+    grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
+    totalTax = draftInvoiceItems.reduce((acc, item) => {
+      const lineSubtotal = Number(item.rate) * Number(item.qty);
+      return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
+    }, 0);
+    totalPayable = Math.round((grossCharges + totalTax) * 100) / 100;
 
-  const totalDeductions = advance + netInsuranceApproved + totalPaymentsReceived;
+    // 2. Insurance Deduction Rule:
+    isInsuranceApproved = tpaInsuranceState.stage === 'Approved' || tpaInsuranceState.stage === 'Settled';
+    rawNetInsurance = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+    approvedInsuranceApplied = isInsuranceApproved ? Math.min(totalPayable, rawNetInsurance) : 0;
 
-  // 4. Net Outstanding Balance
-  const netPayableBalance = Math.round((totalPayable - totalDeductions) * 100) / 100;
+    // 3. Advance Deposits Applied:
+    const advance = advanceDepositAmount || 0;
+    depositApplied = Math.min(advance, Math.max(0, totalPayable - approvedInsuranceApplied));
 
+    // 4. Payments Received for this specific admission:
+    let totalPaymentsReceived = 0;
+    let totalRefundsIssued = 0;
+    (hmsDatabase.payments || []).filter(p => {
+      if (!currentAdm) return false;
+      const pAdm = p.admissionId || p.admission_id;
+      return pAdm === currentAdm;
+    }).forEach(p => {
+      const amt = Number(p.amount) || 0;
+      const st = (p.status || '').toLowerCase();
+      const isRef = st === 'refunded' || String(p.txId || p.tx_id || '').startsWith('RFND-') || amt < 0;
+      if (isRef) {
+        totalRefundsIssued += Math.abs(amt);
+      } else if (st === 'paid' || st === 'success' || !st) {
+        totalPaymentsReceived += amt;
+      }
+    });
+
+    netPaymentsReceived = Math.max(0, totalPaymentsReceived - totalRefundsIssued);
+    const patientResponsibility = Math.max(0, Math.round((totalPayable - approvedInsuranceApplied) * 100) / 100);
+    const totalPaidByPatient = Math.round((depositApplied + netPaymentsReceived) * 100) / 100;
+
+    // 5. Accurate Remaining Payable Balance & Genuine Credit Balance
+    if (totalPaidByPatient >= patientResponsibility) {
+      netPayableBalance = 0;
+      genuineCreditBalance = Math.round((totalPaidByPatient - patientResponsibility) * 100) / 100;
+    } else {
+      netPayableBalance = Math.round((patientResponsibility - totalPaidByPatient) * 100) / 100;
+      genuineCreditBalance = 0;
+    }
+  }
+
+  currentCalculatedRemainingPayable = netPayableBalance;
+  currentCalculatedCreditBalance = genuineCreditBalance;
+
+  // Render metrics
   if (grossEl) grossEl.innerText = `₹${grossCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
   if (taxEl) taxEl.innerText = `+₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
   if (payableEl) payableEl.innerText = `₹${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-  if (advEl) advEl.innerText = `-₹${advance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-  if (insEl) insEl.innerText = `-₹${netInsuranceApproved.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-  if (paidEl) paidEl.innerText = `-₹${totalPaymentsReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (advEl) advEl.innerText = `-₹${depositApplied.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-  if (netEl) {
-    if (netPayableBalance <= 0) {
-      netEl.innerText = netPayableBalance < 0
-        ? `₹0.00 (Refund: ₹${Math.abs(netPayableBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 })})`
-        : '₹0.00';
+  if (insEl) {
+    if (isInsuranceApproved) {
+      insEl.innerText = `-₹${approvedInsuranceApplied.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+      insEl.style.color = '#059669';
     } else {
-      netEl.innerText = `₹${netPayableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+      insEl.innerText = `₹0.00 (Pending: ₹${rawNetInsurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`;
+      insEl.style.color = '#d97706';
     }
   }
+
+  if (paidEl) paidEl.innerText = `-₹${netPaymentsReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (netEl) netEl.innerText = `₹${netPayableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
   if (bannerEl && badgeEl) {
     if (netPayableBalance <= 0) {
@@ -5741,6 +6024,43 @@ function updateOverallBillSummary() {
     } else {
       bannerEl.className = 'net-balance-banner due';
       badgeEl.innerHTML = '<span class="badge badge-danger"><i class="fa-solid fa-clock"></i> Payment Due</span>';
+    }
+  }
+
+  if (creditPanel) {
+    if (genuineCreditBalance > 0) {
+      creditPanel.style.display = 'block';
+      if (creditAmtEl) creditAmtEl.innerText = `₹${genuineCreditBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    } else {
+      creditPanel.style.display = 'none';
+    }
+  }
+
+  if (collectDueBadge) {
+    collectDueBadge.innerText = `Collectible Due: ₹${netPayableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    collectDueBadge.className = netPayableBalance > 0 ? 'badge badge-warning' : 'badge badge-success';
+  }
+
+  // Payment form control states: disable collection if nothing is due
+  if (amtInput) {
+    if (netPayableBalance <= 0) {
+      amtInput.disabled = true;
+      amtInput.placeholder = '₹0.00 (No Dues Pending)';
+      amtInput.value = '';
+    } else {
+      amtInput.disabled = false;
+      amtInput.placeholder = `Max ₹${netPayableBalance.toFixed(2)}`;
+      amtInput.max = netPayableBalance;
+    }
+  }
+
+  if (processBtn) {
+    if (netPayableBalance <= 0) {
+      processBtn.disabled = true;
+      processBtn.innerHTML = '<i class="fa-solid fa-check-double"></i> No Dues Pending';
+    } else if (!isPaymentProcessing) {
+      processBtn.disabled = false;
+      processBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Process Payment &amp; Recalculate Balance';
     }
   }
 
@@ -5754,13 +6074,20 @@ function updateOverallBillSummary() {
     draftInvoiceItems.length > 0,
     advance >= 0,
     finalBillGenerated,
-    tpaInsuranceState.stage === 'Settled' || tpaInsuranceState.stage === 'Approved',
+    isInsuranceApproved,
     netPayableBalance <= 0
   );
 
   // Sync remaining payable into global stat
   const statBill = document.getElementById('statBillBalance');
   if (statBill) statBill.innerText = `₹${Math.max(0, netPayableBalance).toFixed(2)}`;
+
+  // Update memory database sync
+  if (hmsDatabase.billing) {
+    hmsDatabase.billing.admissionId = currentAdm;
+    hmsDatabase.billing.totalBill = totalPayable;
+    hmsDatabase.billing.remainingPayable = netPayableBalance;
+  }
 }
 
 /**
@@ -5797,111 +6124,151 @@ function updateDischargeChecklist(chargesAdded, advanceAdjusted, finalGenerated,
 }
 
 function promptAdjustAdvanceDeposit() {
-  const input = prompt('Enter Adjusted Advance Deposit Amount (₹):', advanceDepositAmount.toString());
+  const current = advanceDepositAmount || 0;
+  const input = prompt('Enter Adjusted Advance Deposit Amount (₹):', current.toString());
   if (input !== null) {
     const parsed = parseFloat(input);
     if (!isNaN(parsed) && parsed >= 0) {
       advanceDepositAmount = parsed;
       updateOverallBillSummary();
+    } else {
+      alert('Please enter a valid non-negative deposit amount.');
     }
   }
 }
 
 /**
- * Quick Action 1: Print Draft Invoice
+ * Quick Action 1: Print Draft Invoice (Functional A4 Dedicated Print Preview)
+ * - Excludes app navigation, controls, and dashboard cards
+ * - Real selected patient data and itemized charges
+ * - Labeled clearly as DRAFT / NOT FINALIZED (or FINAL TAX INVOICE)
+ * - Supports multi-page printing with print-specific CSS
  */
 function handlePrintDraftInvoice() {
-  const patient = billingPatientContext || {
-    fullName: 'Eleanor Vance',
-    patientId: 'P-100001',
-    admissionId: billingActiveAdmissionId || 'HMS-2026-8842',
+  const patient = billingPatientContext || (hmsDatabase.patients && hmsDatabase.patients[0]) || {
+    fullName: 'Meenakshi Ravi',
+    patientId: '26PAT0001',
+    admissionId: billingActiveAdmissionId || '26CAR001',
     roomNumber: 'ICU Room 304',
     attendingDoctor: 'Dr. Aris Thorne (Cardiology)',
-    caregiverName: 'Sarah Vance'
+    caregiverName: 'Priya Lakshmi'
   };
 
-  const invoiceNum = finalBillGenerated ? finalBillInvoiceNo : `INV-${billingActiveAdmissionId || '2026'}-DRAFT`;
+  const invoiceNum = finalBillGenerated ? finalBillInvoiceNo : `INV-${billingActiveAdmissionId || '26CAR001'}-DRAFT`;
   const now = new Date();
   const dateStr = formatLedgerDate(now);
 
-  // Strict Financial Calculations
+  // Authoritative calculations
   const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
   const totalTax = draftInvoiceItems.reduce((acc, item) => {
     const lineSubtotal = Number(item.rate) * Number(item.qty);
     return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
   }, 0);
-  const totalPayable = grossCharges + totalTax;
-  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const totalPayable = Math.round((grossCharges + totalTax) * 100) / 100;
+
+  const isInsuranceApproved = tpaInsuranceState.stage === 'Approved' || tpaInsuranceState.stage === 'Settled';
+  const rawNetInsurance = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
+  const approvedInsuranceApplied = isInsuranceApproved ? Math.min(totalPayable, rawNetInsurance) : 0;
   const advance = advanceDepositAmount || 0;
+  const depositApplied = Math.min(advance, Math.max(0, totalPayable - approvedInsuranceApplied));
+
+  const currentAdm = billingActiveAdmissionId || patient.admissionId;
   let paid = 0;
-  (hmsDatabase.payments || []).forEach(p => paid += Number(p.amount) || 0);
-  const net = Math.round((totalPayable - (advance + netInsuranceApproved + paid)) * 100) / 100;
-
-  let itemsHtml = '';
-  draftInvoiceItems.forEach((item, idx) => {
-    const lineGross = (Number(item.qty) || 1) * (Number(item.rate) || 0);
-    const taxPct = Number(item.taxPercent) || 0;
-    const taxAmt = lineGross * (taxPct / 100);
-    const lineTotal = lineGross + taxAmt;
-    const qtyLabel = item.qtyText || (item.type === 'Stay' ? `${item.qty} Days` : `${item.qty} Unit`);
-
-    itemsHtml += `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${idx + 1}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">
-          <strong>${escapeHtml(item.name)}</strong>
-          <div style="font-size: 11px; color: #64748b;">${escapeHtml(item.sourceModule || item.provider)}</div>
-        </td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${escapeHtml(qtyLabel)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">₹${Number(item.rate).toFixed(2)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${taxPct}%</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">₹${lineTotal.toFixed(2)}</td>
-      </tr>
-    `;
+  let refunded = 0;
+  (hmsDatabase.payments || []).filter(p => {
+    if (!currentAdm) return false;
+    const pAdm = p.admissionId || p.admission_id;
+    return pAdm === currentAdm;
+  }).forEach(p => {
+    const amt = Number(p.amount) || 0;
+    const st = (p.status || '').toLowerCase();
+    const isRef = st === 'refunded' || String(p.txId || p.tx_id || '').startsWith('RFND-') || amt < 0;
+    if (isRef) refunded += Math.abs(amt);
+    else if (st === 'paid' || st === 'success' || !st) paid += amt;
   });
 
+  const netPaymentsReceived = Math.max(0, paid - refunded);
+  const patientResponsibility = Math.max(0, Math.round((totalPayable - approvedInsuranceApplied) * 100) / 100);
+  const totalPatientPaid = Math.round((depositApplied + netPaymentsReceived) * 100) / 100;
+
+  const net = totalPatientPaid >= patientResponsibility ? 0 : Math.round((patientResponsibility - totalPatientPaid) * 100) / 100;
+  const credit = totalPatientPaid > patientResponsibility ? Math.round((totalPatientPaid - patientResponsibility) * 100) / 100 : 0;
+
+  let itemsHtml = '';
+  if (draftInvoiceItems.length === 0) {
+    itemsHtml = `<tr><td colspan="7" style="padding: 14px; text-align: center; color: #64748b; font-style: italic;">No invoice line items currently aggregated.</td></tr>`;
+  } else {
+    draftInvoiceItems.forEach((item, idx) => {
+      const lineGross = (Number(item.qty) || 1) * (Number(item.rate) || 0);
+      const taxPct = Number(item.taxPercent) || 0;
+      const taxAmt = lineGross * (taxPct / 100);
+      const lineTotal = lineGross + taxAmt;
+      const qtyLabel = item.qtyText || (item.type === 'Stay' ? `${item.qty} Days` : `${item.qty} Unit`);
+
+      itemsHtml += `
+        <tr>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px;">${idx + 1}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 12px;">${escapeHtml(item.name)}</div>
+            <div style="font-size: 10px; color: #64748b;">${escapeHtml(item.sourceModule || item.provider || 'Clinical Service')}</div>
+          </td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #475569;">${escapeHtml(item.provider || 'Hospital Unit')}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px; font-weight: 600;">${escapeHtml(qtyLabel)}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 11px;">₹${Number(item.rate).toFixed(2)}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px;">${taxPct}%</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-size: 11.5px; color: #0284c7;">₹${lineTotal.toFixed(2)}</td>
+        </tr>
+      `;
+    });
+  }
+
+  const invoiceBadge = finalBillGenerated
+    ? `<span style="background: #d1fae5; color: #047857; border: 1.5px solid #10b981; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 12px; letter-spacing: 0.5px;">FINAL TAX INVOICE</span>`
+    : `<span style="background: #fef3c7; color: #b45309; border: 1.5px solid #f59e0b; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 12px; letter-spacing: 0.5px;">DRAFT / NOT FINALIZED</span>`;
+
   const invoiceHtml = `
-    <div style="font-family: inherit; color: #0f172a; max-width: 800px; margin: 0 auto;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; max-width: 820px; margin: 0 auto; line-height: 1.45;">
       <!-- Hospital Header -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0284c7; padding-bottom: 16px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 14px;">
         <div>
-          <div style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px;">ST. JUDE MULTISPECIALTY HOSPITAL</div>
-          <div style="font-size: 12px; color: #64748b; margin-top: 2px;">NABH Accredited Tertiary Healthcare Centre • Emergency &amp; Critical Care</div>
-          <div style="font-size: 11px; color: #64748b;">104 Healthcare Boulevard, Medical District • Phone: +91 44 2811 0000</div>
+          <div style="font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px;">ST. JUDE MULTISPECIALTY HOSPITAL</div>
+          <div style="font-size: 11.5px; color: #475569; margin-top: 2px;">NABH Accredited Tertiary Healthcare Centre • Emergency &amp; Critical Care</div>
+          <div style="font-size: 10.5px; color: #64748b;">104 Healthcare Boulevard, Medical District • Phone: +91 44 2811 0000 • GSTIN: 33AAAAA0000A1Z5</div>
         </div>
         <div style="text-align: right;">
-          <div style="display: inline-block; padding: 4px 12px; border-radius: 4px; background: ${finalBillGenerated ? '#d1fae5' : '#e0f2fe'}; color: ${finalBillGenerated ? '#047857' : '#0369a1'}; font-weight: 800; font-size: 13px; text-transform: uppercase;">
-            ${finalBillGenerated ? 'FINAL TAX INVOICE' : 'DRAFT ESTIMATED INVOICE'}
-          </div>
-          <div style="font-size: 12px; font-weight: 700; margin-top: 6px;">Invoice #: <code>${invoiceNum}</code></div>
+          <div>${invoiceBadge}</div>
+          <div style="font-size: 12px; font-weight: 700; margin-top: 6px;">Invoice #: <code>${escapeHtml(invoiceNum)}</code></div>
           <div style="font-size: 11px; color: #64748b;">Date: ${dateStr}</div>
         </div>
       </div>
 
-      <!-- Patient & IPD Meta -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 20px; font-size: 12.5px;">
+      <!-- Patient & IPD Meta Card -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px;">
         <div>
           <div><strong>Patient Name:</strong> ${escapeHtml(patient.fullName || 'N/A')}</div>
-          <div><strong>Patient ID (UHID):</strong> ${escapeHtml(patient.patientId || 'N/A')}</div>
-          <div><strong>Admission ID:</strong> ${escapeHtml(patient.admissionId || 'N/A')}</div>
+          <div><strong>UHID (Patient ID):</strong> <code>${escapeHtml(patient.patientId || 'N/A')}</code></div>
+          <div><strong>IPD Admission ID:</strong> <code>${escapeHtml(patient.admissionId || 'N/A')}</code></div>
+          <div><strong>Age / Gender:</strong> ${escapeHtml(patient.ageGender || patient.age || 'N/A')}</div>
         </div>
         <div>
           <div><strong>Room / Ward:</strong> ${escapeHtml(patient.roomNumber || 'N/A')}</div>
           <div><strong>Attending Doctor:</strong> ${escapeHtml(patient.attendingDoctor || 'N/A')}</div>
+          <div><strong>Primary Caregiver:</strong> ${escapeHtml(patient.caregiverName || 'Caregiver')}</div>
           <div><strong>TPA / Insurer:</strong> ${escapeHtml(tpaInsuranceState.insurerName)} (${escapeHtml(tpaInsuranceState.policyId)})</div>
         </div>
       </div>
 
-      <!-- Itemized Table (Read-Only, No Discount Column) -->
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
+      <!-- Itemized Table (Print Optimized) -->
+      <table class="invoice-print-table" style="width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 16px;">
         <thead>
           <tr style="background: #1e293b; color: white;">
-            <th style="padding: 8px; text-align: center; width: 30px;">#</th>
-            <th style="padding: 8px; text-align: left;">Description</th>
-            <th style="padding: 8px; text-align: center; width: 110px;">Qty / Duration</th>
-            <th style="padding: 8px; text-align: right; width: 90px;">Rate (₹)</th>
-            <th style="padding: 8px; text-align: center; width: 60px;">Tax %</th>
-            <th style="padding: 8px; text-align: right; width: 110px;">Amount (₹)</th>
+            <th style="padding: 7px 8px; text-align: center; width: 30px;">#</th>
+            <th style="padding: 7px 8px; text-align: left;">Item Description</th>
+            <th style="padding: 7px 8px; text-align: left; width: 140px;">Provider / Unit</th>
+            <th style="padding: 7px 8px; text-align: center; width: 95px;">Qty / Stay</th>
+            <th style="padding: 7px 8px; text-align: right; width: 85px;">Rate (₹)</th>
+            <th style="padding: 7px 8px; text-align: center; width: 55px;">Tax %</th>
+            <th style="padding: 7px 8px; text-align: right; width: 100px;">Amount (₹)</th>
           </tr>
         </thead>
         <tbody>
@@ -5909,32 +6276,42 @@ function handlePrintDraftInvoice() {
         </tbody>
       </table>
 
-      <!-- Financial Totals -->
-      <div style="display: flex; justify-content: flex-end; margin-bottom: 24px;">
-        <div style="width: 340px; font-size: 12.5px; line-height: 1.8;">
+      <!-- Financial Totals Block -->
+      <div class="invoice-totals-block" style="display: flex; justify-content: flex-end; margin-bottom: 18px;">
+        <div style="width: 360px; font-size: 12px; line-height: 1.7; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px;">
           <div style="display: flex; justify-content: space-between;"><span>Gross Hospital Charges:</span> <strong>₹${grossCharges.toFixed(2)}</strong></div>
           <div style="display: flex; justify-content: space-between; color: #0284c7;"><span>Total Tax (GST):</span> <strong>+₹${totalTax.toFixed(2)}</strong></div>
-          <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 4px; font-size: 14px; font-weight: 700;"><span>Total Payable Amount:</span> <strong>₹${totalPayable.toFixed(2)}</strong></div>
-          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Advance Deposit Adjusted:</span> <strong>-₹${advance.toFixed(2)}</strong></div>
-          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Net Insurance Approved:</span> <strong>-₹${netInsuranceApproved.toFixed(2)}</strong></div>
-          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Payments Received to Date:</span> <strong>-₹${paid.toFixed(2)}</strong></div>
-          <div style="display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 6px; margin-top: 4px; font-size: 16px; font-weight: 800; color: ${net <= 0 ? '#047857' : '#be123c'};">
-            <span>NET OUTSTANDING BALANCE:</span>
-            <span>${net <= 0 ? '₹0.00 (CLEAR)' : '₹' + net.toFixed(2)}</span>
+          <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 4px; font-size: 13px; font-weight: 700;"><span>Total Payable Amount:</span> <strong>₹${totalPayable.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Advance Deposit Applied:</span> <strong>-₹${depositApplied.toFixed(2)}</strong></div>
+          <div style="display: flex; justify-content: space-between; color: ${isInsuranceApproved ? '#059669' : '#d97706'};">
+            <span>Less: Net Insurance Approved:</span>
+            <strong>${isInsuranceApproved ? '-₹' + approvedInsuranceApplied.toFixed(2) : '₹0.00 (Pending)'}</strong>
           </div>
+          <div style="display: flex; justify-content: space-between; color: #059669;"><span>Less: Payments Received to Date:</span> <strong>-₹${netPaymentsReceived.toFixed(2)}</strong></div>
+          ${refunded > 0 ? `<div style="display: flex; justify-content: space-between; color: #dc2626;"><span>Authorized Refunds Issued:</span> <strong>₹${refunded.toFixed(2)}</strong></div>` : ''}
+          <div style="display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 6px; margin-top: 4px; font-size: 14.5px; font-weight: 800; color: ${net <= 0 ? '#047857' : '#be123c'};">
+            <span>REMAINING PAYABLE BALANCE:</span>
+            <span>${net <= 0 ? '₹0.00 (NO DUES)' : '₹' + net.toFixed(2)}</span>
+          </div>
+          ${credit > 0 ? `<div style="display: flex; justify-content: space-between; color: #0284c7; font-weight: 700; margin-top: 4px; font-size: 12px;"><span>Credit Balance Available:</span> <span>₹${credit.toFixed(2)}</span></div>` : ''}
         </div>
       </div>
 
-      <!-- Signatures Footer -->
-      <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #cbd5e1; font-size: 11.5px; color: #64748b;">
+      <!-- Signatures Footer Block -->
+      <div class="invoice-signatures-block" style="display: flex; justify-content: space-between; margin-top: 30px; padding-top: 16px; border-top: 1px dashed #cbd5e1; font-size: 11px; color: #64748b;">
         <div>
-          <div>Prepared By: <strong>${escapeHtml(activeStaff.name || 'Chief Billing Officer')}</strong></div>
-          <div>Authorized Billing &amp; Insurance Desk</div>
+          <div>Prepared &amp; Verified By: <strong>${escapeHtml(activeStaff.name || 'Chief Billing Officer')}</strong></div>
+          <div>Authorized Billing &amp; Insurance Desk • St. Jude Hospital</div>
         </div>
         <div style="text-align: right;">
-          <div style="margin-top: 30px; border-top: 1px solid #0f172a; width: 180px; display: inline-block;"></div>
+          <div style="margin-top: 24px; border-top: 1px solid #0f172a; width: 180px; display: inline-block;"></div>
           <div>Patient / Caregiver Signature</div>
         </div>
+      </div>
+
+      <!-- Electronics Notice -->
+      <div style="text-align: center; margin-top: 16px; font-size: 10px; color: #94a3b8;">
+        This document is an official hospital draft audit statement generated by CareBridge HMS. All tariff schedules comply with hospital board standards.
       </div>
     </div>
   `;
@@ -5954,6 +6331,11 @@ function closeInvoiceModal() {
 
 /**
  * Quick Action 2: Generate Final Bill
+ * Validates prerequisites before locking draft charges:
+ * - Patient/Admission selected
+ * - Valid draft charges exist
+ * - Insurance approvals verified
+ * - Staff confirmation dialog
  */
 function handleGenerateFinalBill() {
   if (!activeStaff.allowedDepts.includes('billing')) {
@@ -5961,27 +6343,45 @@ function handleGenerateFinalBill() {
     return;
   }
 
+  if (!billingActiveAdmissionId) {
+    alert('Please select an active patient / admission before generating the final bill.');
+    return;
+  }
+
+  if (draftInvoiceItems.length === 0) {
+    alert('Cannot generate final bill: No billing charges exist for this patient.');
+    return;
+  }
+
+  if (finalBillGenerated) {
+    alert(`Final bill is already generated and locked for this admission.\nInvoice Number: ${finalBillInvoiceNo}`);
+    return;
+  }
+
+  const isInsuranceApproved = tpaInsuranceState.stage === 'Approved' || tpaInsuranceState.stage === 'Settled';
+  if (!isInsuranceApproved) {
+    const proceed = confirm(`NOTICE: Cashless Insurance Claim status is currently "${tpaInsuranceState.stage}".\nGenerating the Final Bill now will lock the invoice without approved insurance deduction.\n\nDo you want to proceed with finalizing the bill?`);
+    if (!proceed) return;
+  }
+
+  const patientName = billingPatientContext?.fullName || 'Active Patient';
+  const confirmMsg = `GENERATE OFFICIAL FINAL BILL\n\nPatient: ${patientName} (${billingActiveAdmissionId})\nTotal Charges: ₹${(document.getElementById('summaryTotalPayable')?.innerText || '₹0.00')}\n\nOnce locked, draft charges cannot be modified. Proceed?`;
+  if (!confirm(confirmMsg)) return;
+
   finalBillGenerated = true;
-  finalBillInvoiceNo = `INV-2026-FINAL-${Math.floor(1000 + Math.random() * 9000)}`;
+  finalBillInvoiceNo = `INV-${billingActiveAdmissionId || '2026'}-FINAL-${Math.floor(1000 + Math.random() * 9000)}`;
 
   updateOverallBillSummary();
-  alert(`Final Hospital Tax Bill Generated Successfully!\nOfficial Invoice Number: ${finalBillInvoiceNo}\nCharges are now locked for discharge clearance.`);
+  saveHmsDatabase();
+
+  alert(`Final Hospital Tax Bill Generated Successfully!\nOfficial Invoice Number: ${finalBillInvoiceNo}\nCharges are now officially locked for discharge clearance.`);
 }
 
 /**
- * Quick Action 3: Record Co-pay / New Payment
- */
-function handleRecordCopayPayment() {
-  const amtInput = document.getElementById('collectPayAmount');
-  if (amtInput) {
-    amtInput.value = tpaInsuranceState.copayAmount > 0 ? tpaInsuranceState.copayAmount : '1000';
-    amtInput.focus();
-    amtInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-}
-
-/**
- * Quick Action 4: Initiate Discharge
+ * Quick Action 3: Initiate Discharge
+ * Validates financial clearance before discharge:
+ * - Net balance must be zero (no outstanding dues)
+ * - Final bill must be generated
  */
 function handleInitiateDischarge() {
   if (!activeStaff.allowedDepts.includes('billing')) {
@@ -5989,44 +6389,56 @@ function handleInitiateDischarge() {
     return;
   }
 
-  // Calculate current net balance using strict formula
-  const grossCharges = draftInvoiceItems.reduce((acc, item) => acc + (Number(item.rate) * Number(item.qty)), 0);
-  const totalTax = draftInvoiceItems.reduce((acc, item) => {
-    const lineSubtotal = Number(item.rate) * Number(item.qty);
-    return acc + (lineSubtotal * ((Number(item.taxPercent) || 0) / 100));
-  }, 0);
-  const totalPayable = grossCharges + totalTax;
-  const netInsuranceApproved = Math.max(0, (Number(tpaInsuranceState.approvedAmount) || 0) - (Number(tpaInsuranceState.copayAmount) || 0));
-  const advance = advanceDepositAmount || 0;
-  let paid = 0;
-  (hmsDatabase.payments || []).forEach(p => paid += Number(p.amount) || 0);
-  const netBalance = Math.round((totalPayable - (advance + netInsuranceApproved + paid)) * 100) / 100;
+  const patientName = billingPatientContext?.fullName || 'Active Patient';
+  const targetAdmission = billingActiveAdmissionId || '26CAR001';
 
-  if (netBalance > 0) {
-    alert(`DISCHARGE BLOCKED - PENDING DUES!\n\nPatient has an unpaid outstanding balance of ₹${netBalance.toFixed(2)}.\nPlease collect pending dues or record final settlement before issuing No Dues Clearance.`);
-    handleRecordCopayPayment();
+  if (currentCalculatedRemainingPayable > 0) {
+    alert(`DISCHARGE BLOCKED - PENDING DUES!\n\nPatient ${patientName} (${targetAdmission}) has an unpaid outstanding balance of ₹${currentCalculatedRemainingPayable.toFixed(2)}.\nPlease collect pending dues before issuing No Dues Clearance.`);
+    const amtInput = document.getElementById('collectPayAmount');
+    if (amtInput && !amtInput.disabled) {
+      amtInput.value = currentCalculatedRemainingPayable.toFixed(2);
+      amtInput.focus();
+      amtInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
     return;
   }
 
   if (!finalBillGenerated) {
+    alert('Please generate the Final Bill before completing discharge clearance.');
     handleGenerateFinalBill();
+    return;
   }
 
+  alert(`FINANCIAL CLEARANCE CERTIFIED!\n\nPatient: ${patientName} (${targetAdmission})\nInvoice: ${finalBillInvoiceNo}\nOutstanding Balance: ₹0.00 (No Dues)\n\nFinancial No Dues Certificate generated. Patient may proceed to ward discharge.`);
 }
 
 /**
- * Quick Action 5: Send to TPA
+ * Quick Action 4: Send to TPA
+ * Transmits itemized draft invoice package to TPA / Insurer pipeline
  */
 function handleSendToTpa() {
   setTpaPipelineStage('Under Review');
-  alert(`Claim Package Transmitted to ${tpaInsuranceState.insurerName}!\n\nPolicy ID: ${tpaInsuranceState.policyId}\nPre-Auth Request: ₹${tpaInsuranceState.preAuthAmount.toFixed(2)}\nAttached: Itemized Draft Invoice, Diagnostic Reports, and Clinical Ward Transfer Logs.\nPipeline status advanced to: Approval Pending.`);
+  alert(`Claim Package Transmitted to ${tpaInsuranceState.insurerName}!\n\nPolicy ID: ${tpaInsuranceState.policyId}\nPre-Auth Request: ₹${tpaInsuranceState.preAuthAmount.toFixed(2)}\nAttached: Itemized Draft Invoice, Diagnostic Reports, and Clinical Ward Transfer Logs.\nPipeline status advanced to: Under Review (Approval Pending).`);
+}
+
+/**
+ * Preserved Internal Helper for Co-pay Shortcut
+ */
+function handleRecordCopayPayment() {
+  const amtInput = document.getElementById('collectPayAmount');
+  if (amtInput && !amtInput.disabled) {
+    const copay = tpaInsuranceState.copayAmount > 0 ? tpaInsuranceState.copayAmount : currentCalculatedRemainingPayable;
+    amtInput.value = Math.min(copay, currentCalculatedRemainingPayable).toString();
+    amtInput.focus();
+    amtInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 /**
  * Receipt Voucher Modal Handler
  */
 function openReceiptModal(txId) {
-  const p = (hmsDatabase.payments || []).find(item => item.txId === txId) || {
+  const p = (hmsDatabase.payments || []).find(item => item.txId === txId || item.tx_id === txId) || {
     txId: txId || 'TXN-991823',
     date: '13-Aug-2026, 10:30 AM',
     method: 'UPI (Google Pay)',
@@ -6087,7 +6499,7 @@ function closeReceiptModal() {
 /**
  * Handle Bill Admission Change & IPD Context Update
  */
-function handleBillAdmissionChange(isUserAction = false) {
+async function handleBillAdmissionChange(isUserAction = false) {
   const admSelect = document.getElementById('billAdmissionSelect');
   const admissionId = admSelect ? admSelect.value : '';
 
@@ -6100,6 +6512,16 @@ function handleBillAdmissionChange(isUserAction = false) {
       || (hmsDatabase.patients || []).find(p => p.admissionId === admissionId || p.patientId === admissionId);
 
     billingPatientContext = patient;
+
+    // Pre-fill payer input with caregiver name or patient name
+    const payerInput = document.getElementById('collectPayPayer');
+    if (payerInput) {
+      if (patient) {
+        payerInput.value = patient.caregiverName ? `${patient.caregiverName} (Caregiver)` : patient.fullName;
+      } else {
+        payerInput.value = '';
+      }
+    }
 
     // Update Patient Context Chip
     const chip = document.getElementById('billingPatientChip');
@@ -6123,11 +6545,25 @@ function handleBillAdmissionChange(isUserAction = false) {
     // 1. Calculate room stay charges from transfer audit logs
     calculateRoomStayCharges(admissionId);
 
-    // 2. Refresh aggregated draft invoice items
-    refreshAggregatedDraftInvoice(false);
+    // 2. Load authoritative billing and payments from backend
+    const [backendBill] = await Promise.all([
+      loadAdmissionBilling(admissionId),
+      loadAdmissionPayments(admissionId)
+    ]);
+
+    // If backend bill was not loaded or returned no items, calculate locally
+    if (!backendBill || !backendBill.items || backendBill.items.length === 0) {
+      refreshAggregatedDraftInvoice(false);
+    } else {
+      renderDraftInvoiceTable();
+    }
 
     // 3. Update category state for manual charge box
     updateBillCategoryState();
+
+    // 4. Render payment ledger and recalculate bill summary
+    renderPaymentLedger();
+    updateOverallBillSummary(backendBill);
   }
 }
 
