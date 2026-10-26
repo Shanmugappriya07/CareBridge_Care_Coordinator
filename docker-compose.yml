@@ -1,0 +1,22 @@
+# Optional: run MySQL + CareBridge together with one command.
+# Database schema must be loaded separately (see DEMO_CICD.md) - keep demo on the tested local setup.
+services:
+  carebridge:
+    image: ${DOCKER_IMAGE:-carebridge-backend:latest}
+    build: .
+    ports:
+      - "8080:8080"
+      - "8085:8085"
+    environment:
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      DB_NAME: ${DB_NAME:-carebridge_db}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - carebridge_uploads:/app/carebridge_backend/uploads
+    restart: unless-stopped
+volumes:
+  carebridge_uploads:

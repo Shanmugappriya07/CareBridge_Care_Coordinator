@@ -1,0 +1,61 @@
+name: CareBridge CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-ci:
+    name: Backend build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: carebridge_backend/package-lock.json
+      - name: Install dependencies
+        working-directory: carebridge_backend
+        run: npm ci
+      - name: Syntax check
+        working-directory: carebridge_backend
+        run: |
+          node --check server.js
+          node --check ../hms_staff_portal/hms_app.js
+          node --check ../hms_staff_portal/auth.js
+      - name: Smoke test (API + HMS portal start)
+        working-directory: carebridge_backend
+        run: |
+          node server.js > server.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -fs http://127.0.0.1:8080/api/health && break
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8080/api/health
+          curl -fsI http://127.0.0.1:8085/login.html
+      - name: Show server log on failure
+        if: failure()
+        run: cat carebridge_backend/server.log
+
+  docker:
+    name: Docker image build & push
+    needs: backend-ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t carebridge-backend:${{ github.sha }} .
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push image
+        run: |
+          IMG=${{ secrets.DOCKERHUB_USERNAME }}/carebridge-backend
+          docker tag carebridge-backend:${{ github.sha }} $IMG:latest
+          docker tag carebridge-backend:${{ github.sha }} $IMG:${{ github.sha }}
+          docker push $IMG:latest
+          docker push $IMG:${{ github.sha }}

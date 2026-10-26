@@ -1,0 +1,35 @@
+---
+- name: Deploy CareBridge backend container
+  hosts: carebridge
+  vars:
+    image: "carebridge-backend:latest"
+    db_host: "host.docker.internal"
+    db_user: "root"
+    db_password: "root"
+  tasks:
+    - name: Pull latest image
+      community.docker.docker_image:
+        name: "{{ image }}"
+        source: pull
+        force_source: true
+    - name: Run container
+      community.docker.docker_container:
+        name: carebridge
+        image: "{{ image }}"
+        state: started
+        restart_policy: unless-stopped
+        recreate: true
+        published_ports: ["8080:8080", "8085:8085"]
+        etc_hosts: { "host.docker.internal": "host-gateway" }
+        env:
+          DB_HOST: "{{ db_host }}"
+          DB_USER: "{{ db_user }}"
+          DB_PASSWORD: "{{ db_password }}"
+          DB_NAME: "carebridge_db"
+    - name: Wait for health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/api/health
+      register: health
+      retries: 15
+      delay: 2
+      until: health.status == 200
