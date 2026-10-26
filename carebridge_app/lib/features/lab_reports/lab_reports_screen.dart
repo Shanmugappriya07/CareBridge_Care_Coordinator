@@ -65,6 +65,35 @@ class _LabReportsScreenState extends State<LabReportsScreen> {
     }
   }
 
+  IconData _fileIcon(LabReport report) {
+    final name = (report.fileName ?? report.fileUrl ?? '').toLowerCase();
+    if (name.endsWith('.pdf')) {
+      return Icons.picture_as_pdf;
+    } else if (name.endsWith('.png') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.webp') ||
+        name.endsWith('.gif')) {
+      return Icons.image_outlined;
+    } else if (name.endsWith('.doc') || name.endsWith('.docx')) {
+      return Icons.description_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
+  }
+
+  Color _iconColor(LabReport report) {
+    final name = (report.fileName ?? report.fileUrl ?? '').toLowerCase();
+    if (name.endsWith('.pdf')) {
+      return Colors.red.shade700;
+    } else if (name.endsWith('.png') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.webp')) {
+      return AppColors.accent;
+    }
+    return AppColors.primary;
+  }
+
   Future<void> _download(LabReport report) async {
     setState(() => _downloading.add(report.id));
     final error = await LabReportService.downloadReport(
@@ -132,7 +161,7 @@ class _LabReportsScreenState extends State<LabReportsScreen> {
 
           final reports = snapshot.data ?? [];
 
-          // Empty state — no placeholder data, only real DB records
+          // Empty state — only uploaded files are shown
           if (reports.isEmpty) {
             return RefreshIndicator(
               onRefresh: () async {
@@ -150,13 +179,13 @@ class _LabReportsScreenState extends State<LabReportsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.science_outlined,
+                            Icons.cloud_upload_outlined,
                             size: 64,
                             color: AppColors.textMuted,
                           ),
                           SizedBox(height: 16),
                           Text(
-                            'No Reports Yet',
+                            'No Uploaded Reports Yet',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -165,7 +194,7 @@ class _LabReportsScreenState extends State<LabReportsScreen> {
                           ),
                           SizedBox(height: 8),
                           Text(
-                            'Lab and diagnostic reports will appear here\nonce they are added by the hospital.',
+                            'Diagnostic lab test reports will appear here\nonce uploaded files are published by the hospital laboratory.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 fontSize: 14, color: AppColors.textSecondary),
@@ -186,79 +215,109 @@ class _LabReportsScreenState extends State<LabReportsScreen> {
             },
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            itemCount: reports.length,
-            itemBuilder: (context, index) {
-              final r = reports[index];
-              final isDownloading = _downloading.contains(r.id);
-              final dateStr = DateFormat('dd MMM yyyy').format(r.reportDate);
+              padding: const EdgeInsets.all(16),
+              itemCount: reports.length,
+              itemBuilder: (context, index) {
+                final r = reports[index];
+                final isDownloading = _downloading.contains(r.id);
+                final dateStr = DateFormat('dd MMM yyyy').format(r.reportDate);
+                final icon = _fileIcon(r);
+                final iconColor = _iconColor(r);
+                final displayFileName = r.fileName?.isNotEmpty == true
+                    ? r.fileName!
+                    : (r.fileUrl?.split('/').last ?? 'Uploaded Report');
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CustomCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryLight,
-                          borderRadius: BorderRadius.circular(12),
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: CustomCard(
+                    onTap: isDownloading ? null : () => _download(r),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: iconColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            icon,
+                            color: iconColor,
+                            size: 28,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.picture_as_pdf,
-                          color: AppColors.primary,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              r.title,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 15),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${r.department} • $dateStr • Ref: ${r.refNumber}',
-                              style: const TextStyle(
-                                  fontSize: 12, color: AppColors.textSecondary),
-                            ),
-                            const SizedBox(height: 6),
-                            StatusBadge(
-                              label: r.status,
-                              type: _badgeType(r.status),
-                            ),
-                          ],
-                        ),
-                      ),
-                      isDownloading
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2.5),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                r.title,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15),
                               ),
-                            )
-                          : IconButton(
-                              icon: const Icon(
-                                Icons.file_download_outlined,
-                                color: AppColors.primary,
+                              const SizedBox(height: 4),
+                              Text(
+                                '${r.department} • $dateStr • Ref: ${r.refNumber}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.textSecondary),
                               ),
-                              tooltip: 'Download PDF',
-                              onPressed: () => _download(r),
-                            ),
-                    ],
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.attach_file,
+                                    size: 13,
+                                    color: Colors.blueGrey.shade600,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      displayFileName,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.blueGrey.shade700,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              StatusBadge(
+                                label: r.status,
+                                type: _badgeType(r.status),
+                              ),
+                            ],
+                          ),
+                        ),
+                        isDownloading
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2.5),
+                                ),
+                              )
+                            : IconButton(
+                                icon: const Icon(
+                                  Icons.file_download_outlined,
+                                  color: AppColors.primary,
+                                ),
+                                tooltip: 'Open Uploaded File',
+                                onPressed: () => _download(r),
+                              ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        );
+                );
+              },
+            ),
+          );
         },
       ),
     );

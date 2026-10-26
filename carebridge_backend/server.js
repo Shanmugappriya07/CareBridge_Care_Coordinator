@@ -358,6 +358,10 @@ pool.query(`
   ALTER TABLE doctor_appointments ADD COLUMN assigned_lab_reports VARCHAR(255) NULL
 `).catch(() => {});
 
+// Ensure file_url and file_name columns exist on lab_reports
+pool.query('ALTER TABLE lab_reports ADD COLUMN file_url VARCHAR(255) NULL').catch(() => {});
+pool.query('ALTER TABLE lab_reports ADD COLUMN file_name VARCHAR(255) NULL').catch(() => {});
+
 // Auto-correct any appointment scheduled today that was shifted to yesterday due to UTC conversion
 pool.query(`
   UPDATE doctor_appointments 
@@ -4027,15 +4031,21 @@ app.get('/api/v1/admissions/:admissionId/records/:type', async (req, res) => {
       }));
     }
     if (type === 'tests') {
+      const isStaff = req.headers['x-staff-request'] === 'true';
+      const fileClause = isStaff ? '' : ' AND (file_url IS NOT NULL AND TRIM(file_url) != "")';
       const [rows] = await pool.query(
         `SELECT * FROM lab_reports 
          WHERE admission_id = ? 
-           AND NOT (LOWER(category) = 'radiology' OR LOWER(title) REGEXP 'x-ray|ct scan|mri|ultrasound')`,
+           ${fileClause}
+           AND NOT (LOWER(category) = 'radiology' OR LOWER(title) REGEXP 'x-ray|ct scan|mri|ultrasound')
+         ORDER BY created_at DESC`,
         [admissionId]
       );
       return res.json(rows.map(r => ({
         id: r.id,
         resourceType: 'tests',
+        fileUrl: r.file_url || null,
+        fileName: r.file_name || null,
         payload: JSON.stringify({
           reportId: r.id,
           admissionId: r.admission_id,
@@ -4043,20 +4053,29 @@ app.get('/api/v1/admissions/:admissionId/records/:type', async (req, res) => {
           title: r.title,
           department: r.category,
           status: r.status,
-          notes: r.notes
+          notes: r.notes,
+          fileUrl: r.file_url || null,
+          fileName: r.file_name || null,
+          reportDate: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
         })
       })));
     }
     if (type === 'scans') {
+      const isStaff = req.headers['x-staff-request'] === 'true';
+      const fileClause = isStaff ? '' : ' AND (file_url IS NOT NULL AND TRIM(file_url) != "")';
       const [rows] = await pool.query(
         `SELECT * FROM lab_reports 
          WHERE admission_id = ? 
-           AND (LOWER(category) = 'radiology' OR LOWER(title) REGEXP 'x-ray|ct scan|mri|ultrasound')`,
+           ${fileClause}
+           AND (LOWER(category) = 'radiology' OR LOWER(title) REGEXP 'x-ray|ct scan|mri|ultrasound')
+         ORDER BY created_at DESC`,
         [admissionId]
       );
       return res.json(rows.map(r => ({
         id: r.id,
         resourceType: 'scans',
+        fileUrl: r.file_url || null,
+        fileName: r.file_name || null,
         payload: JSON.stringify({
           reportId: r.id,
           admissionId: r.admission_id,
@@ -4064,7 +4083,10 @@ app.get('/api/v1/admissions/:admissionId/records/:type', async (req, res) => {
           title: r.title,
           department: r.category,
           status: r.status,
-          notes: r.notes
+          notes: r.notes,
+          fileUrl: r.file_url || null,
+          fileName: r.file_name || null,
+          reportDate: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
         })
       })));
     }
@@ -4093,6 +4115,37 @@ app.get('/api/v1/admissions/:admissionId/records/:type', async (req, res) => {
     }
     res.json([]);
   } catch (err) {
+    if (type === 'tests' || type === 'scans') {
+      const isScan = (category, title) => {
+        const c = String(category || '').toLowerCase();
+        const t = String(title || '').toLowerCase();
+        return c === 'radiology' || /x-ray|ct scan|mri|ultrasound/.test(t);
+      };
+      const isStaff = req.headers['x-staff-request'] === 'true';
+      const filtered = (memoryFallbackDb.labReports || []).filter(r => 
+        r.admissionId === admissionId &&
+        (isStaff || (r.fileUrl || r.file_url)) &&
+        (type === 'scans' ? isScan(r.category, r.title) : !isScan(r.category, r.title))
+      );
+      return res.json(filtered.map(r => ({
+        id: r.id,
+        resourceType: type,
+        fileUrl: r.fileUrl || r.file_url || null,
+        fileName: r.fileName || r.file_name || null,
+        payload: JSON.stringify({
+          reportId: r.id,
+          admissionId: r.admissionId,
+          patientId: r.patientId,
+          title: r.title,
+          department: r.category,
+          status: r.status,
+          notes: r.notes,
+          fileUrl: r.fileUrl || r.file_url || null,
+          fileName: r.fileName || r.file_name || null,
+          reportDate: r.created_at || new Date().toISOString()
+        })
+      })));
+    }
     res.status(500).json({ error: err.message });
   }
 });

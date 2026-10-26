@@ -326,6 +326,7 @@ class AdmissionService {
     final reports = reportRows
         .map((record) => LabReport.fromRecord(
             Map<String, dynamic>.from(record)))
+        .where((report) => report.hasFile)
         .toList();
     if (reports.any(
         (report) => report.admissionId != admissionId || report.id.isEmpty)) {

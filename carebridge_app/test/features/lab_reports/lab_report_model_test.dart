@@ -60,5 +60,31 @@ void main() {
     expect(report.status, 'Completed');
     expect(report.notes, 'No acute findings');
     expect(report.parameters['Result'], 'No acute findings');
+    expect(report.hasFile, false);
+  });
+
+  test('decodes a lab report with uploaded file attachment', () {
+    final report = LabReport.fromRecord({
+      'id': 33,
+      'resourceType': 'tests',
+      'payload': jsonEncode({
+        'reportId': 'LAB-33',
+        'admissionId': 'ADM-33',
+        'patientId': 'PAT-33',
+        'title': 'Lipid Profile',
+        'department': 'Biochemistry',
+        'refNumber': 'LAB-33',
+        'reportDate': '2026-10-01T08:00:00Z',
+        'status': 'Normal',
+        'notes': 'All lipid levels normal',
+        'fileUrl': '/uploads/lipid_profile_report.pdf',
+        'fileName': 'lipid_profile_report.pdf',
+      }),
+    });
+
+    expect(report.title, 'Lipid Profile');
+    expect(report.fileUrl, '/uploads/lipid_profile_report.pdf');
+    expect(report.fileName, 'lipid_profile_report.pdf');
+    expect(report.hasFile, true);
   });
 }

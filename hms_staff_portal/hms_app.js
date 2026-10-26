@@ -3855,10 +3855,17 @@ async function handleAddLabReport() {
   if (submitButton) submitButton.disabled = true;
 
   try {
+    if (!selectedLabReportFile) {
+      alert('Please select and upload the diagnostic lab report file (PDF, Image, or DOC) before publishing.');
+      document.getElementById('labReportFileInput')?.click();
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
+
     let fileUrl = '';
     let fileName = '';
 
-    // If an attachment file was provided, upload it
+    // Upload the attachment file
     if (selectedLabReportFile) {
       const base64Data = await readFileAsBase64(selectedLabReportFile);
       const uploadRes = await fetch(`${HMS_API_BASE}/api/hms/upload`, {
